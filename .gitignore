@@ -12,6 +12,7 @@ yarn-error.log
 /.idea
 /.vscode
 /.phpunit.result.cache
+.env.dev
 
 bootstrap/cache/*
 storage/*.key
