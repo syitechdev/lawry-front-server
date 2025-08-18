@@ -6,13 +6,16 @@ export type Formation = {
   code?: string;
   title: string;
   description?: string | null;
-  price_cfa?: number;
+  price_cfa?: number | null;
+  price_type?: "fixed" | "quote";
   duration?: string;
   max_participants?: number;
-  type?: "Présentiel" | "Webinaire" | "En ligne";
+  type?: string;
+  level?: string | null;
   date?: string;
   trainer?: string;
   active: boolean;
+  modules?: string[];
   category?: string | { "@id": string } | null;
   category_id?: number | null;
   categoryId?: number | null;
@@ -35,7 +38,11 @@ function parseIriId(iri?: string | null): number | null {
 function fromApi(j: any): Formation {
   const id = typeof j.id === "number" ? j.id : parseIriId(j["@id"]) ?? 0;
 
-  const price_cfa = j.price_cfa ?? j.priceCfa ?? undefined;
+  const price_cfa =
+    j.price_cfa ??
+    j.priceCfa ??
+    (j.price_cfa === null || j.priceCfa === null ? null : undefined);
+
   const max_participants = j.max_participants ?? j.maxParticipants ?? undefined;
   const date = j.date ?? undefined;
   const created_at = j.created_at ?? j.createdAt ?? undefined;
@@ -49,6 +56,13 @@ function fromApi(j: any): Formation {
   else if (category && typeof category === "object" && category["@id"])
     category_id = parseIriId(category["@id"]);
 
+  const price_type: Formation["price_type"] =
+    j.price_type ?? j.priceType ?? undefined;
+  const level: Formation["level"] = j.level ?? null;
+  const modules: string[] = Array.isArray(j.modules)
+    ? j.modules.map((m: any) => String(m))
+    : [];
+
   return {
     id,
     "@id": j["@id"],
@@ -56,12 +70,15 @@ function fromApi(j: any): Formation {
     title: j.title,
     description: j.description ?? null,
     price_cfa,
+    price_type,
     duration: j.duration,
     max_participants,
     type: j.type,
+    level,
     date,
     trainer: j.trainer,
     active: !!j.active,
+    modules,
     category,
     category_id,
     categoryId: category_id,
@@ -131,6 +148,10 @@ function toApiPayload(input: Record<string, any>): Record<string, any> {
 }
 
 export const formations = {
+  async listPublic(params?: Record<string, any>) {
+    const { data } = await http.get("/public/formations", { params });
+    return data;
+  },
   async list(params?: Record<string, any>): Promise<FormationList> {
     const { data } = await http.get("/formations", {
       params,

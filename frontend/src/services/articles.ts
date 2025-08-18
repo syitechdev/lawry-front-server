@@ -41,7 +41,6 @@ export interface Article {
   authorName?: string | null;
 }
 
-// ---------- helpers ----------
 function backendOrigin(): string {
   try {
     const base = (http.defaults as any)?.baseURL || window.location.origin;

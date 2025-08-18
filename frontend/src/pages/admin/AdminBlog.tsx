@@ -65,7 +65,7 @@ const getStatutBadge = (statut: string) =>
 export default function AdminBlog() {
   const { user, hasRole } = useAuth();
   const isAdmin = !!hasRole("Admin");
-
+  console.log(user, hasRole("Admin"));
   // listes
   const [categories, setCategories] = useState<Category[]>([]);
   const [articles, setArticles] = useState<Article[]>([]);

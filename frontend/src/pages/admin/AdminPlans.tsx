@@ -12,51 +12,47 @@ import BackofficeSidebar from "@/components/BackofficeSidebar";
 import { plans as plansApi } from "@/services/plans";
 import type { Plan } from "@/services/plans";
 import PlanEditForm from "@/components/forms/PlanEditForm";
+import { http } from "@/lib/http";
+
+/* ---------- Helpers API Platform ---------- */
+function extractMember(json: any): any[] {
+  if (!json) return [];
+  if (Array.isArray(json.member)) return json.member;
+  if (Array.isArray(json["hydra:member"])) return json["hydra:member"];
+  if (Array.isArray(json.data)) return json.data;
+  return Array.isArray(json) ? json : [];
+}
+function apiError(err: any, fallback: string) {
+  const d = err?.response?.data;
+  return (
+    d?.detail ||
+    d?.description ||
+    d?.message ||
+    d?.violations?.[0]?.message ||
+    fallback
+  );
+}
+
+/* ---------- Types locaux Tarifs ---------- */
+type TarifUniqueRow = {
+  id: number | string; // string => brouillon "new-...", number => item persistant
+  nom: string;
+  prix: number;
+  description: string;
+  actif: boolean;
+  created_at?: string;
+  updated_at?: string;
+};
+
+const TARIFS_BASE = "/tarif_uniques"; // ✅ correspond à route:list
 
 const AdminPlans = () => {
-  // Back-end Plans
+  /* ---------------- Plans (inchangé) ---------------- */
   const [items, setItems] = useState<Plan[]>([]);
   const [loading, setLoading] = useState(true);
-
-  // UI states pour le modal
   const [editingPlan, setEditingPlan] = useState<Plan | null>(null);
   const [creatingOpen, setCreatingOpen] = useState(false);
 
-  // Tarifs uniques (local/demo)
-  const [tarifsUniques, setTarifsUniques] = useState<
-    {
-      id: string;
-      nom: string;
-      prix: number;
-      description: string;
-      actif: boolean;
-    }[]
-  >([
-    {
-      id: "tarif1",
-      nom: "Consultation juridique ponctuelle",
-      prix: 25000,
-      description: "Consultation d'1h avec un juriste expert",
-      actif: true,
-    },
-    {
-      id: "tarif2",
-      nom: "Création SARL Express",
-      prix: 150000,
-      description: "Création complète de SARL en 48h",
-      actif: true,
-    },
-    {
-      id: "tarif3",
-      nom: "Rédaction contrat personnalisé",
-      prix: 75000,
-      description: "Contrat sur mesure selon vos besoins",
-      actif: true,
-    },
-  ]);
-  const [editingTarif, setEditingTarif] = useState<string | null>(null);
-
-  // Chargement initial
   const load = async () => {
     setLoading(true);
     try {
@@ -69,14 +65,11 @@ const AdminPlans = () => {
       setLoading(false);
     }
   };
-
   useEffect(() => {
     load();
   }, []);
 
-  // Helpers UI
   const getPlanBadgeColor = (couleur: string) => {
-    // On affiche la couleur telle quelle (ex: 'Bleu', 'Rouge'...)
     const map: Record<string, string> = {
       Bleu: "bg-blue-100 text-blue-800",
       Vert: "bg-green-100 text-green-800",
@@ -93,7 +86,6 @@ const AdminPlans = () => {
     return map[couleur] || "bg-gray-100 text-gray-800";
   };
 
-  // Actions backend
   const onDelete = async (p: Plan) => {
     if (!confirm(`Supprimer le plan "${p.name}" ?`)) return;
     try {
@@ -108,7 +100,6 @@ const AdminPlans = () => {
 
   const onToggleActive = async (p: Plan) => {
     const next = !p.isActive;
-    // Optimistic UI
     setItems((prev) =>
       prev.map((x) => (x.id === p.id ? { ...x, isActive: next } : x))
     );
@@ -116,7 +107,6 @@ const AdminPlans = () => {
       await plansApi.setActive(p.id, next);
       toast.success(next ? "Plan activé" : "Plan désactivé");
     } catch (e: any) {
-      // revert
       setItems((prev) =>
         prev.map((x) => (x.id === p.id ? { ...x, isActive: !next } : x))
       );
@@ -142,26 +132,99 @@ const AdminPlans = () => {
     }
   };
 
-  // Tarifs locaux
+  /* --------------- Tarifs Uniques (branché API) --------------- */
+  const [tarifsUniques, setTarifsUniques] = useState<TarifUniqueRow[]>([]);
+  const [loadingTarifs, setLoadingTarifs] = useState(true);
+  const [editingTarif, setEditingTarif] = useState<string | null>(null);
+
+  const loadTarifs = async () => {
+    setLoadingTarifs(true);
+    try {
+      const r = await http.get(TARIFS_BASE, {
+        params: { "order[created_at]": "desc" },
+      });
+      const rows = extractMember(r.data).map((t: any) => ({
+        id: t.id,
+        nom: t.nom,
+        prix: Number(t.prix ?? 0),
+        description: t.description ?? "",
+        actif: !!(t.actif ?? false),
+        created_at: t.created_at ?? t.createdAt,
+        updated_at: t.updated_at ?? t.updatedAt,
+      })) as TarifUniqueRow[];
+      setTarifsUniques(rows);
+    } catch (e: any) {
+      console.error(e);
+      toast.error(apiError(e, "Impossible de charger les tarifs"));
+    } finally {
+      setLoadingTarifs(false);
+    }
+  };
+  useEffect(() => {
+    loadTarifs();
+  }, []);
+
+  // ----- mêmes handlers que ta vue, mais reliés API -----
   const updateTarif = (
     id: string,
     field: "nom" | "prix" | "description",
     value: any
   ) => {
     setTarifsUniques((prev) =>
-      prev.map((t) => (t.id === id ? { ...t, [field]: value } : t))
+      prev.map((t) => (String(t.id) === id ? { ...t, [field]: value } : t))
     );
   };
-  const toggleTarifStatus = (id: string) => {
+
+  const toggleTarifStatus = async (id: string) => {
+    const t = tarifsUniques.find((x) => String(x.id) === id);
+    if (!t) return;
+    const next = !t.actif;
+
+    // optimistic
     setTarifsUniques((prev) =>
-      prev.map((t) => (t.id === id ? { ...t, actif: !t.actif } : t))
+      prev.map((x) => (String(x.id) === id ? { ...x, actif: next } : x))
     );
-    toast.success("Statut du tarif modifié");
+
+    try {
+      // Si brouillon local, pas d’API
+      if (typeof t.id === "string") {
+        toast.success("Statut du tarif modifié (brouillon)");
+        return;
+      }
+      // Toggle back-end
+      await http.patch(
+        `/admin/tarifs/${t.id}/active`,
+        { actif: next },
+        { headers: { Accept: "application/json" } }
+      );
+      toast.success(next ? "Tarif activé" : "Tarif désactivé");
+    } catch (e: any) {
+      // revert
+      setTarifsUniques((prev) =>
+        prev.map((x) => (String(x.id) === id ? { ...x, actif: !next } : x))
+      );
+      console.error(e);
+      toast.error(apiError(e, "Échec de la mise à jour"));
+    }
   };
-  const deleteTarif = (id: string) => {
-    setTarifsUniques((prev) => prev.filter((t) => t.id !== id));
-    toast.success("Tarif supprimé");
+
+  const deleteTarif = async (id: string) => {
+    const t = tarifsUniques.find((x) => String(x.id) === id);
+    if (!t) return;
+    if (!confirm("Supprimer ce tarif ?")) return;
+
+    try {
+      if (typeof t.id === "number") {
+        await http.delete(`${TARIFS_BASE}/${t.id}`);
+      }
+      setTarifsUniques((prev) => prev.filter((x) => String(x.id) !== id));
+      toast.success("Tarif supprimé");
+    } catch (e: any) {
+      console.error(e);
+      toast.error(apiError(e, "Suppression impossible"));
+    }
   };
+
   const addNewTarif = () => {
     const id = `tarif${Date.now()}`;
     setTarifsUniques((prev) => [
@@ -174,19 +237,47 @@ const AdminPlans = () => {
         actif: true,
       },
     ]);
+    setEditingTarif(id);
   };
-  const saveTarif = (tarifId: string) => {
-    const t = tarifsUniques.find((x) => x.id === tarifId);
+
+  const saveTarif = async (tarifId: string) => {
+    const t = tarifsUniques.find((x) => String(x.id) === tarifId);
     if (!t) return;
     if (!t.nom.trim() || Number(t.prix) <= 0) {
       toast.error("Veuillez remplir tous les champs");
       return;
     }
-    setEditingTarif(null);
-    toast.success("Tarif sauvegardé");
+
+    try {
+      const payload = {
+        nom: t.nom,
+        prix: Number(t.prix),
+        description: t.description || null,
+        actif: !!t.actif,
+      };
+
+      if (typeof t.id === "string") {
+        // CREATE
+        await http.post(TARIFS_BASE, payload, {
+          headers: { "Content-Type": "application/ld+json" },
+        });
+        toast.success("Tarif créé");
+      } else {
+        // UPDATE
+        await http.patch(`${TARIFS_BASE}/${t.id}`, payload, {
+          headers: { "Content-Type": "application/merge-patch+json" },
+        });
+        toast.success("Tarif sauvegardé");
+      }
+      setEditingTarif(null);
+      await loadTarifs();
+    } catch (e: any) {
+      console.error(e);
+      toast.error(apiError(e, "Erreur lors de la sauvegarde"));
+    }
   };
 
-  // Stats UI (mémo)
+  /* ---------------- Stats (inchangé) ---------------- */
   const stats = useMemo(() => {
     const total = items.length;
     const actifs = items.filter((p) => p.isActive).length;
@@ -195,6 +286,7 @@ const AdminPlans = () => {
     return { total, actifs, populaires, nbTarifsActifs };
   }, [items, tarifsUniques]);
 
+  /* ---------------- Render (même design) ---------------- */
   return (
     <div className="min-h-screen bg-gradient-to-br from-gray-50 via-red-50/30 to-gray-50">
       {/* Toaster pour SONNER (toasts) */}
@@ -354,7 +446,7 @@ const AdminPlans = () => {
           )}
         </div>
 
-        {/* Tarifs uniques (démo locale) */}
+        {/* Tarifs uniques (même vue, branché API) */}
         <div className="mb-8">
           <div className="flex justify-between items-center mb-6">
             <h2 className="text-2xl font-bold text-gray-900">Tarifs Uniques</h2>
@@ -367,115 +459,132 @@ const AdminPlans = () => {
             </Button>
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 mb-8">
-            {tarifsUniques.map((tarif) => (
-              <Card key={tarif.id} className="relative">
-                <CardHeader>
-                  <div className="flex justify-between items-start mb-2">
-                    <div className="flex-1">
-                      {editingTarif === tarif.id ? (
-                        <Input
-                          value={tarif.nom}
-                          onChange={(e) =>
-                            updateTarif(tarif.id, "nom", e.target.value)
+          {loadingTarifs ? (
+            <div className="text-gray-500">Chargement…</div>
+          ) : tarifsUniques.length === 0 ? (
+            <div className="text-gray-500">Aucun tarif pour le moment.</div>
+          ) : (
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 mb-8">
+              {tarifsUniques.map((tarif) => (
+                <Card key={String(tarif.id)} className="relative">
+                  <CardHeader>
+                    <div className="flex justify-between items-start mb-2">
+                      <div className="flex-1">
+                        {editingTarif === String(tarif.id) ? (
+                          <Input
+                            value={tarif.nom}
+                            onChange={(e) =>
+                              updateTarif(
+                                tarif.id.toString(),
+                                "nom",
+                                e.target.value
+                              )
+                            }
+                            className="font-semibold mb-2"
+                          />
+                        ) : (
+                          <h3 className="font-semibold text-gray-900">
+                            {tarif.nom}
+                          </h3>
+                        )}
+                      </div>
+                      <div className="flex items-center space-x-2">
+                        <Switch
+                          checked={tarif.actif}
+                          onCheckedChange={() =>
+                            toggleTarifStatus(tarif.id.toString())
                           }
-                          className="font-semibold mb-2"
+                          className="scale-75"
+                        />
+                      </div>
+                    </div>
+
+                    <div className="text-2xl font-bold text-red-600">
+                      {editingTarif === String(tarif.id) ? (
+                        <Input
+                          type="number"
+                          value={tarif.prix}
+                          onChange={(e) =>
+                            updateTarif(
+                              tarif.id.toString(),
+                              "prix",
+                              parseInt(e.target.value) || 0
+                            )
+                          }
+                          className="text-2xl font-bold"
                         />
                       ) : (
-                        <h3 className="font-semibold text-gray-900">
-                          {tarif.nom}
-                        </h3>
+                        `${Number(tarif.prix ?? 0).toLocaleString()} FCFA`
                       )}
                     </div>
-                    <div className="flex items-center space-x-2">
-                      <Switch
-                        checked={tarif.actif}
-                        onCheckedChange={() => toggleTarifStatus(tarif.id)}
-                        className="scale-75"
-                      />
-                    </div>
-                  </div>
+                  </CardHeader>
 
-                  <div className="text-2xl font-bold text-red-600">
-                    {editingTarif === tarif.id ? (
-                      <Input
-                        type="number"
-                        value={tarif.prix}
+                  <CardContent>
+                    {editingTarif === String(tarif.id) ? (
+                      <textarea
+                        value={tarif.description}
                         onChange={(e) =>
                           updateTarif(
-                            tarif.id,
-                            "prix",
-                            parseInt(e.target.value) || 0
+                            tarif.id.toString(),
+                            "description",
+                            e.target.value
                           )
                         }
-                        className="text-2xl font-bold"
+                        className="w-full p-2 border border-gray-300 rounded text-sm mb-4"
+                        rows={3}
                       />
                     ) : (
-                      `${Number(tarif.prix ?? 0).toLocaleString()} FCFA`
+                      <p className="text-gray-600 text-sm mb-4">
+                        {tarif.description}
+                      </p>
                     )}
-                  </div>
-                </CardHeader>
 
-                <CardContent>
-                  {editingTarif === tarif.id ? (
-                    <textarea
-                      value={tarif.description}
-                      onChange={(e) =>
-                        updateTarif(tarif.id, "description", e.target.value)
-                      }
-                      className="w-full p-2 border border-gray-300 rounded text-sm mb-4"
-                      rows={3}
-                    />
-                  ) : (
-                    <p className="text-gray-600 text-sm mb-4">
-                      {tarif.description}
-                    </p>
-                  )}
-
-                  <div className="flex space-x-2">
-                    {editingTarif === tarif.id ? (
-                      <>
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          onClick={() => saveTarif(tarif.id)}
-                          className="flex-1"
-                        >
-                          Sauver
-                        </Button>
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          onClick={() => setEditingTarif(null)}
-                        >
-                          Annuler
-                        </Button>
-                      </>
-                    ) : (
-                      <>
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          className="flex-1"
-                          onClick={() => setEditingTarif(tarif.id)}
-                        >
-                          Modifier
-                        </Button>
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          onClick={() => deleteTarif(tarif.id)}
-                          className="text-red-600 hover:bg-red-50"
-                        >
-                          <Trash2 className="h-3 w-3" />
-                        </Button>
-                      </>
-                    )}
-                  </div>
-                </CardContent>
-              </Card>
-            ))}
-          </div>
+                    <div className="flex space-x-2">
+                      {editingTarif === String(tarif.id) ? (
+                        <>
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => saveTarif(tarif.id.toString())}
+                            className="flex-1"
+                          >
+                            Sauver
+                          </Button>
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => setEditingTarif(null)}
+                          >
+                            Annuler
+                          </Button>
+                        </>
+                      ) : (
+                        <>
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            className="flex-1"
+                            onClick={() => setEditingTarif(tarif.id.toString())}
+                          >
+                            <Edit className="h-3 w-3 mr-1" />
+                            Modifier
+                          </Button>
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => deleteTarif(tarif.id.toString())}
+                            className="text-red-600 hover:bg-red-50"
+                          >
+                            <Trash2 className="h-3 w-3" />
+                          </Button>
+                        </>
+                      )}
+                    </div>
+                  </CardContent>
+                </Card>
+              ))}
+            </div>
+          )}
         </div>
 
         {/* Statistiques */}

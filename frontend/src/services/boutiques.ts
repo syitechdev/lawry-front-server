@@ -1,14 +1,11 @@
-// src/services/boutique.ts
 import { http } from "@/lib/http";
 import { uploadImage } from "@/services/upload";
 
-// -------- Types API (backend) --------
 export interface BoutiqueApi {
   "@id"?: string;
   id: number;
   code?: string;
   name: string;
-  // API peut répondre camelCase (priceCfa) ou snake_case (price_cfa)
   price_cfa?: number;
   priceCfa?: number;
 
@@ -18,13 +15,11 @@ export interface BoutiqueApi {
   is_active?: boolean;
   isActive?: boolean;
 
-  // image renvoyée sous différentes formes selon la sérialisation
   image_url?: string | null;
   imageUrl?: string | null;
   image_path?: string | null;
   imagePath?: string | null;
 
-  // catégorie : IRI, number, objet
   category?:
     | string
     | { "@id"?: string; id?: number; name?: string }
@@ -44,7 +39,6 @@ export interface BoutiqueApi {
   updated_at?: string;
 }
 
-// -------- Types UI (frontend) --------
 export interface Produit {
   "@id"?: string;
   id: number;
@@ -54,12 +48,12 @@ export interface Produit {
   description: string;
   fichiers: string[];
   actif: boolean;
-  image: string; // URL prête à afficher
-  categorie: string; // label
+  image: string;
+  categorie: string;
   categorieId?: number | null;
 
-  note: number; // 0..5
-  telecharges: number; // downloads_count
+  note: number;
+  telecharges: number;
   createdAt?: string;
   updatedAt?: string;
 }
@@ -95,13 +89,9 @@ function pickMessage(err: any, fallback: string) {
 
 // -------- Mapping API -> UI --------
 function apiToUi(b: BoutiqueApi): Produit {
-  // prix
   const prix = parseNumberSafe(b.price_cfa ?? b.priceCfa, 0);
-
-  // actif
   const actif = b.is_active ?? b.isActive ? true : false;
 
-  // image : tente toutes les variantes
   let image: string = PLACEHOLDER;
   const rawUrl = b.image_url ?? b.imageUrl ?? null;
   const rawPath = b.image_path ?? b.imagePath ?? null;
@@ -174,13 +164,11 @@ function uiToApi(
   if (p.fichiers !== undefined) out.files = p.fichiers ?? [];
   if (p.actif !== undefined) out.is_active = p.actif;
 
-  // Catégorie : ID prioritaire
   if (p.categorieId !== undefined) out.category_id = p.categorieId ?? null;
 
   if (p.telecharges !== undefined) out.downloads_count = p.telecharges;
   if (p.note !== undefined) out.rating = parseNumberSafe(p.note, 0).toFixed(1);
 
-  // image URL directe (convertie côté backend en image_path)
   if (extra?.imageUrl) (out as any).image_url = extra.imageUrl;
 
   return out;

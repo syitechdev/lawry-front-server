@@ -1,7 +1,13 @@
 import Header from "@/components/Header";
 import Footer from "@/components/Footer";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Link, useLocation, useNavigate } from "react-router-dom";
@@ -28,8 +34,6 @@ const Login = () => {
   const { toast } = useToast();
   const location = useLocation();
 
-  
-
   useEffect(() => {
     const params = new URLSearchParams(location.search);
     if (params.get("expired") === "1") {
@@ -47,7 +51,10 @@ const Login = () => {
     setIsLoading(true);
 
     try {
-      const { data } = await http.post<LoginResponse>("/auth/login", { email, password });
+      const { data } = await http.post<LoginResponse>("/auth/login", {
+        email,
+        password,
+      });
 
       localStorage.setItem("auth_token", data.token);
       localStorage.setItem("current_user", JSON.stringify(data.user));
@@ -59,7 +66,9 @@ const Login = () => {
       });
 
       const roles = data.user.roles ?? [];
-      navigate(roles.includes("Admin") ? "/admin" : "/client", { replace: true });
+      navigate(roles.includes("Admin") ? "/admin" : "/client", {
+        replace: true,
+      });
     } catch (error) {
       const err = error as AxiosError<ErrorPayload>;
       const msg =
@@ -92,13 +101,18 @@ const Login = () => {
                   <Scale className="h-10 w-10 text-white" />
                 </div>
                 <div>
-                  <h1 className="text-3xl font-bold text-gray-900">Lawry Conseils CI</h1>
-                  <p className="text-red-800 font-medium">Excellence juridique</p>
+                  <h1 className="text-3xl font-bold text-gray-900">
+                    Lawry Conseils CI
+                  </h1>
+                  <p className="text-red-800 font-medium">
+                    Excellence juridique
+                  </p>
                 </div>
               </div>
 
               <h2 className="text-4xl font-bold text-gray-900 mb-4">
-                Bienvenue dans votre <span className="text-red-900">espace client</span>
+                Bienvenue dans votre{" "}
+                <span className="text-red-900">espace client</span>
               </h2>
 
               <p className="text-lg text-gray-600 mb-8">
@@ -112,8 +126,12 @@ const Login = () => {
                     <Shield className="h-5 w-5 text-red-800" />
                   </div>
                   <div>
-                    <h3 className="font-semibold text-gray-900">Sécurisé et confidentiel</h3>
-                    <p className="text-sm text-gray-600">Vos données sont protégées</p>
+                    <h3 className="font-semibold text-gray-900">
+                      Sécurisé et confidentiel
+                    </h3>
+                    <p className="text-sm text-gray-600">
+                      Vos données sont protégées
+                    </p>
                   </div>
                 </div>
 
@@ -122,23 +140,33 @@ const Login = () => {
                     <Users className="h-5 w-5 text-red-800" />
                   </div>
                   <div>
-                    <h3 className="font-semibold text-gray-900">Support dédié</h3>
-                    <p className="text-sm text-gray-600">Nos experts vous accompagnent</p>
+                    <h3 className="font-semibold text-gray-900">
+                      Support dédié
+                    </h3>
+                    <p className="text-sm text-gray-600">
+                      Nos experts vous accompagnent
+                    </p>
                   </div>
                 </div>
               </div>
 
               {/* Infos démo */}
               <div className="mt-8 p-6 bg-white rounded-lg shadow-sm border border-red-100">
-                <h3 className="font-semibold text-gray-900 mb-3">Comptes de démonstration :</h3>
+                <h3 className="font-semibold text-gray-900 mb-3">
+                  Comptes de démonstration :
+                </h3>
                 <div className="space-y-2 text-sm">
                   <div className="flex justify-between">
                     <span className="font-medium text-blue-600">Admin :</span>
-                    <span className="text-gray-600">admin@lawry.ci / admin123</span>
+                    <span className="text-gray-600">
+                      admin@lawry.ci / admin123
+                    </span>
                   </div>
                   <div className="flex justify-between">
                     <span className="font-medium text-green-600">Client :</span>
-                    <span className="text-gray-600">client@lawry.ci / client123</span>
+                    <span className="text-gray-600">
+                      client@lawry.ci / client123
+                    </span>
                   </div>
                 </div>
               </div>
@@ -154,16 +182,22 @@ const Login = () => {
                     <Scale className="h-8 w-8 text-white" />
                   </div>
                 </div>
-                <CardTitle className="text-3xl font-bold text-gray-900">Connexion</CardTitle>
+                <CardTitle className="text-3xl font-bold text-gray-900">
+                  Connexion
+                </CardTitle>
                 <CardDescription className="text-gray-600 text-base">
-                  Accédez à votre espace client pour gérer vos documents et services
+                  Accédez à votre espace client pour gérer vos documents et
+                  services
                 </CardDescription>
               </CardHeader>
 
               <CardContent className="space-y-6">
                 <form onSubmit={handleLogin} className="space-y-6">
                   <div className="space-y-2">
-                    <Label htmlFor="email" className="text-gray-700 font-medium">
+                    <Label
+                      htmlFor="email"
+                      className="text-gray-700 font-medium"
+                    >
                       Email
                     </Label>
                     <Input
@@ -179,7 +213,10 @@ const Login = () => {
                   </div>
 
                   <div className="space-y-2">
-                    <Label htmlFor="password" className="text-gray-700 font-medium">
+                    <Label
+                      htmlFor="password"
+                      className="text-gray-700 font-medium"
+                    >
                       Mot de passe
                     </Label>
                     <div className="relative">
@@ -197,19 +234,33 @@ const Login = () => {
                         type="button"
                         className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500 hover:text-red-900 transition-colors"
                         onClick={() => setShowPassword((v) => !v)}
-                        aria-label={showPassword ? "Masquer le mot de passe" : "Afficher le mot de passe"}
+                        aria-label={
+                          showPassword
+                            ? "Masquer le mot de passe"
+                            : "Afficher le mot de passe"
+                        }
                       >
-                        {showPassword ? <EyeOff className="h-5 w-5" /> : <Eye className="h-5 w-5" />}
+                        {showPassword ? (
+                          <EyeOff className="h-5 w-5" />
+                        ) : (
+                          <Eye className="h-5 w-5" />
+                        )}
                       </button>
                     </div>
                   </div>
 
                   <div className="flex items-center justify-between">
                     <label className="flex items-center space-x-2 text-sm text-gray-600">
-                      <input type="checkbox" className="rounded border-gray-300 text-red-900 focus:ring-red-900" />
+                      <input
+                        type="checkbox"
+                        className="rounded border-gray-300 text-red-900 focus:ring-red-900"
+                      />
                       <span>Se souvenir de moi</span>
                     </label>
-                    <Link to="#" className="text-sm text-red-900 hover:text-red-800 font-medium hover:underline">
+                    <Link
+                      to="/forgot-password"
+                      className="text-sm text-red-900 hover:text-red-800 font-medium hover:underline"
+                    >
                       Mot de passe oublié ?
                     </Link>
                   </div>
@@ -226,7 +277,10 @@ const Login = () => {
                 <div className="text-center pt-4">
                   <p className="text-gray-600">
                     Pas encore de compte ?{" "}
-                    <Link to="/register" className="text-red-900 hover:text-red-800 font-semibold hover:underline">
+                    <Link
+                      to="/register"
+                      className="text-red-900 hover:text-red-800 font-semibold hover:underline"
+                    >
                       Créer un compte
                     </Link>
                   </p>
@@ -234,15 +288,23 @@ const Login = () => {
 
                 {/* Mobile - Infos de connexion */}
                 <div className="lg:hidden p-4 bg-gray-50 rounded-lg">
-                  <h4 className="font-semibold text-gray-900 mb-2 text-sm">Comptes de test :</h4>
+                  <h4 className="font-semibold text-gray-900 mb-2 text-sm">
+                    Comptes de test :
+                  </h4>
                   <div className="space-y-1 text-xs">
                     <div>
                       <span className="font-medium text-blue-600">Admin :</span>
-                      <span className="text-gray-600 ml-1">admin@lawry.ci / admin123</span>
+                      <span className="text-gray-600 ml-1">
+                        admin@lawry.ci / admin123
+                      </span>
                     </div>
                     <div>
-                      <span className="font-medium text-green-600">Client :</span>
-                      <span className="text-gray-600 ml-1">client@lawry.ci / client123</span>
+                      <span className="font-medium text-green-600">
+                        Client :
+                      </span>
+                      <span className="text-gray-600 ml-1">
+                        client@lawry.ci / client123
+                      </span>
                     </div>
                   </div>
                 </div>

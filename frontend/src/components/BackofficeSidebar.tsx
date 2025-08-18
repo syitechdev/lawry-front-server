@@ -1,19 +1,54 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import {
-  LayoutDashboard, FileText, Users, ShoppingCart,
-  GraduationCap, Settings, LogOut, ChevronLeft,
-  ChevronRight, Shield, Bell, User, CreditCard, Rss, Briefcase, Crown
+  LayoutDashboard,
+  FileText,
+  Users,
+  ShoppingCart,
+  GraduationCap,
+  Settings,
+  LogOut,
+  ChevronLeft,
+  ChevronRight,
+  ChevronDown, // ⟵ pour le dropdown
+  Shield,
+  Bell,
+  User,
+  CreditCard,
+  Rss,
+  Briefcase,
+  Crown,
+  Crop,
+  Tags, // ⟵ icône parent "Types"
+  Building2, // ⟵ icône "Types d’entreprise"
+  List, // ⟵ icône "Types"
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { logout } from "@/lib/auth";
 
+type RoleName = "Admin" | "Client" | string;
+
+interface CurrentUser {
+  id: number;
+  code: string;
+  name: string;
+  email: string;
+  phone?: string;
+  address?: string;
+  status?: string;
+  services_count?: number;
+  last_activity_at?: string;
+  roles?: RoleName[];
+  created_at?: string;
+  updated_at?: string;
+}
+
 interface SidebarProps {
-  userRole: "admin" | "client";
+  userRole?: "admin" | "client";
   userName?: string;
   userEmail?: string;
 }
@@ -28,6 +63,55 @@ const BackofficeSidebar = ({
   const navigate = useNavigate();
   const { toast } = useToast();
 
+  // Auth
+  const [authToken, setAuthToken] = useState<string | null>(null);
+  const [authUser, setAuthUser] = useState<CurrentUser | null>(null);
+
+  const readAuthFromStorage = () => {
+    try {
+      const token = localStorage.getItem("auth_token");
+      const rawUser = localStorage.getItem("current_user");
+      setAuthToken(token);
+      setAuthUser(rawUser ? JSON.parse(rawUser) : null);
+    } catch {
+      setAuthUser(null);
+    }
+  };
+
+  useEffect(() => {
+    readAuthFromStorage();
+    const onStorage = (e: StorageEvent) => {
+      if (e.key === "auth_token" || e.key === "current_user")
+        readAuthFromStorage();
+    };
+    window.addEventListener("storage", onStorage);
+    return () => window.removeEventListener("storage", onStorage);
+  }, []);
+
+  // Rôle
+  const detectedRole: "admin" | "client" = (() => {
+    const roles = (authUser?.roles || []).map((r) => String(r).toLowerCase());
+    if (
+      roles.includes("admin") ||
+      roles.includes("super admin") ||
+      roles.includes("administrator")
+    ) {
+      return "admin";
+    }
+    return "client";
+  })();
+  const role: "admin" | "client" = userRole ?? detectedRole;
+
+  // Affichage
+  const displayName = authUser?.name ?? userName;
+  const displayEmail = authUser?.email ?? userEmail;
+  const displayRoleLabel = role === "admin" ? "Administrateur" : "Client";
+  const lastActivityStr = (
+    authUser?.last_activity_at
+      ? new Date(authUser.last_activity_at)
+      : new Date()
+  ).toLocaleTimeString();
+
   const handleLogout = async () => {
     try {
       await logout();
@@ -35,7 +119,7 @@ const BackofficeSidebar = ({
         title: "Déconnexion réussie",
         description: "Vous êtes maintenant déconnecté.",
       });
-    } catch (e) {
+    } catch {
       toast({
         variant: "destructive",
         title: "Déconnexion",
@@ -46,33 +130,82 @@ const BackofficeSidebar = ({
     }
   };
 
+  // Menu
   const adminMenuItems = [
     { icon: LayoutDashboard, label: "Dashboard", path: "/admin", badge: null },
     { icon: FileText, label: "Demandes", path: "/admin/demandes", badge: "5" },
     { icon: Users, label: "Clients", path: "/admin/clients", badge: null },
-    { icon: ShoppingCart, label: "Boutique", path: "/admin/boutique", badge: null },
-    { icon: GraduationCap, label: "Formations", path: "/admin/formations", badge: null },
-    { icon: Briefcase, label: "Nos Services", path: "/admin/services", badge: null },
+    {
+      icon: ShoppingCart,
+      label: "Boutique",
+      path: "/admin/boutique",
+      badge: null,
+    },
+    {
+      icon: GraduationCap,
+      label: "Formations",
+      path: "/admin/formations",
+      badge: null,
+    }, // lien simple
+    {
+      icon: Briefcase,
+      label: "Nos Services",
+      path: "/admin/services",
+      badge: null,
+    },
     { icon: Crown, label: "Plans & Tarifs", path: "/admin/plans", badge: null },
     { icon: Rss, label: "Blog", path: "/admin/blog", badge: null },
-    { icon: Settings, label: "Paramètres", path: "/admin/parametres", badge: null },
+    { icon: Crop, label: "Catégories", path: "/admin/categories", badge: null },
+    { icon: Tags, label: "Types", path: "/admin/types", badge: null }, // ⟵ parent avec sous-menu
+    {
+      icon: Settings,
+      label: "Paramètres",
+      path: "/admin/parametres",
+      badge: null,
+    },
   ];
 
   const clientMenuItems = [
     { icon: LayoutDashboard, label: "Dashboard", path: "/client", badge: null },
-    { icon: FileText, label: "Mes Commandes", path: "/client/commandes", badge: "2" },
-    { icon: CreditCard, label: "Paiements", path: "/client/paiements", badge: null },
-    { icon: ShoppingCart, label: "Boutique", path: "/client/boutique", badge: null },
-    { icon: Crown, label: "Plans & Tarifs", path: "/client/plans", badge: null },
+    {
+      icon: FileText,
+      label: "Mes Commandes",
+      path: "/client/commandes",
+      badge: "2",
+    },
+    {
+      icon: CreditCard,
+      label: "Paiements",
+      path: "/client/paiements",
+      badge: null,
+    },
+    {
+      icon: ShoppingCart,
+      label: "Boutique",
+      path: "/client/boutique",
+      badge: null,
+    },
+    {
+      icon: Crown,
+      label: "Plans & Tarifs",
+      path: "/client/plans",
+      badge: null,
+    },
     { icon: User, label: "Profil", path: "/client/profil", badge: null },
   ];
 
-  const menuItems = userRole === "admin" ? adminMenuItems : clientMenuItems;
-
+  const menuItems = role === "admin" ? adminMenuItems : clientMenuItems;
   const isActiveLink = (path: string) => location.pathname === path;
 
+  // Sous-menu “Types”
+  const [openTypes, setOpenTypes] = useState<boolean>(
+    () =>
+      location.pathname.startsWith("/admin/types-entreprise") ||
+      location.pathname === "/admin/types"
+  );
+
   const themeColors =
-    userRole === "admin"
+    role === "admin"
       ? {
           primary: "bg-gradient-to-br from-red-900 via-red-800 to-red-900",
           secondary: "bg-red-100 text-red-800 border-red-200",
@@ -111,16 +244,16 @@ const BackofficeSidebar = ({
             {!isCollapsed && (
               <div className="flex items-center space-x-4">
                 <div className="w-12 h-12 rounded-full bg-white/20 backdrop-blur-sm flex items-center justify-center shadow-lg">
-                  {userRole === "admin" ? (
+                  {role === "admin" ? (
                     <Shield className="h-6 w-6 text-white" />
                   ) : (
                     <User className="h-6 w-6 text-white" />
                   )}
                 </div>
                 <div>
-                  <p className="font-bold text-lg">{userName}</p>
+                  <p className="font-bold text-lg">{displayName}</p>
                   <p className="text-sm text-white/80 capitalize">
-                    {userRole === "admin" ? "Administrateur" : "Client Premium"}
+                    {displayRoleLabel}
                   </p>
                 </div>
               </div>
@@ -141,8 +274,8 @@ const BackofficeSidebar = ({
 
           {!isCollapsed && (
             <div className="mt-4 text-sm text-white/70">
-              <p>{userEmail}</p>
-              <p className="mt-1">Connecté • {new Date().toLocaleTimeString()}</p>
+              <p>{displayEmail}</p>
+              <p className="mt-1">Connecté • {lastActivityStr}</p>
             </div>
           )}
         </div>
@@ -159,10 +292,12 @@ const BackofficeSidebar = ({
                 </div>
                 <div className="flex-1">
                   <p className="font-semibold text-sm">
-                    {userRole === "admin" ? "5 dossiers urgents" : "2 nouveaux messages"}
+                    {role === "admin"
+                      ? "5 dossiers urgents"
+                      : "2 nouveaux messages"}
                   </p>
                   <p className="text-xs opacity-80 mt-1">
-                    {userRole === "admin"
+                    {role === "admin"
                       ? "Nécessitent votre attention immédiate"
                       : "De votre juriste conseil"}
                   </p>
@@ -179,23 +314,92 @@ const BackofficeSidebar = ({
           <div className="space-y-2">
             {menuItems.map((item, index) => {
               const Icon = item.icon;
-              const isActive = isActiveLink(item.path);
 
+              // Bloc spécial pour "Types" (avec sous-menu)
+              if (role === "admin" && item.label === "Types") {
+                const activeParent =
+                  location.pathname.startsWith("/admin/types-entreprise") ||
+                  location.pathname === "/admin/types";
+
+                return (
+                  <div key={`types-${index}`} className="space-y-1">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (isCollapsed) setIsCollapsed(false);
+                        setOpenTypes((v) => !v);
+                      }}
+                      className={`w-full flex items-center space-x-4 px-4 py-3 rounded-xl transition-all duration-200 group ${
+                        activeParent
+                          ? themeColors.activeLink
+                          : themeColors.normalLink
+                      }`}
+                    >
+                      <div
+                        className={`p-2 rounded-lg transition-colors ${
+                          activeParent
+                            ? "bg-white shadow-sm"
+                            : "group-hover:bg-red-100"
+                        }`}
+                      >
+                        <Tags
+                          className={`h-5 w-5 ${
+                            activeParent ? "text-red-800" : ""
+                          }`}
+                        />
+                      </div>
+                      {!isCollapsed && (
+                        <>
+                          <span className="font-semibold text-sm">
+                            Entreprise
+                          </span>
+                          <ChevronDown
+                            className={`h-4 flex-1 w-4 transition-transform ${
+                              openTypes ? "rotate-180" : ""
+                            }`}
+                          />
+                        </>
+                      )}
+                    </button>
+
+                    {!isCollapsed && openTypes && (
+                      <div className="ml-12 mt-1 space-y-1">
+                        <Link
+                          to="/admin/types-entreprise"
+                          className={`flex items-center px-3 py-2 rounded-lg text-sm transition-all duration-200 ${
+                            location.pathname.startsWith(
+                              "/admin/types-entreprise"
+                            )
+                              ? "bg-red-50 text-red-800"
+                              : "text-gray-700 hover:bg-red-50 hover:text-red-800"
+                          }`}
+                        >
+                          <Building2 className="h-4 w-4 mr-2" />
+                          <span>Types d’entreprise</span>
+                        </Link>
+                      </div>
+                    )}
+                  </div>
+                );
+              }
+
+              // Rendu standard pour les autres entrées
+              const active = isActiveLink(item.path);
               return (
                 <Link
                   key={index}
                   to={item.path}
                   className={`flex items-center space-x-4 px-4 py-3 rounded-xl transition-all duration-200 group ${
-                    isActive ? themeColors.activeLink : themeColors.normalLink
+                    active ? themeColors.activeLink : themeColors.normalLink
                   }`}
                 >
                   <div
                     className={`p-2 rounded-lg transition-colors ${
-                      isActive ? "bg-white shadow-sm" : "group-hover:bg-red-100"
+                      active ? "bg-white shadow-sm" : "group-hover:bg-red-100"
                     }`}
                   >
                     <Icon
-                      className={`h-5 w-5 ${isActive ? "text-red-800" : ""}`}
+                      className={`h-5 w-5 ${active ? "text-red-800" : ""}`}
                     />
                   </div>
                   {!isCollapsed && (
@@ -232,7 +436,7 @@ const BackofficeSidebar = ({
               <Shield className="h-4 w-4" />
             </div>
             <p className="text-xs text-gray-500">
-              Session active depuis {new Date().toLocaleTimeString()}
+              Session active depuis {lastActivityStr}
             </p>
           </div>
         )}

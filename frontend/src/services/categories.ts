@@ -3,8 +3,11 @@ import { http as _http } from "@/lib/http";
 export type Category = {
   id: number;
   "@id"?: string;
-  name: string; // affichage
-  title?: string; // si l’API expose 'title'
+  name: string;
+  slug?: string | null;
+  description?: string | null;
+  createdAt?: string;
+  updatedAt?: string;
 };
 
 type CategoryList = {
@@ -21,10 +24,15 @@ function parseIriId2(iri?: string | null): number | null {
 
 function fromApiCat(j: any): Category {
   const id = typeof j.id === "number" ? j.id : parseIriId2(j["@id"]) ?? 0;
-
-  const name = j.name ?? j.title ?? j.label ?? `Catégorie #${id}`;
-
-  return { id, "@id": j["@id"], name, title: j.title };
+  return {
+    id,
+    "@id": j["@id"],
+    name: j.name ?? j.title ?? j.label ?? `Catégorie #${id}`,
+    slug: j.slug ?? null,
+    description: j.description ?? null,
+    createdAt: j.createdAt ?? j.created_at,
+    updatedAt: j.updatedAt ?? j.updated_at,
+  };
 }
 
 function normalizeListCat(data: any): CategoryList {
@@ -55,12 +63,90 @@ function normalizeListCat(data: any): CategoryList {
   return { items: [], total: 0, raw: data };
 }
 
+function apiError(err: any, fallback: string) {
+  const d = err?.response?.data;
+  return (
+    d?.detail ||
+    d?.description ||
+    d?.message ||
+    d?.violations?.[0]?.message ||
+    fallback
+  );
+}
+
 export const categories = {
   async list(params?: Record<string, any>): Promise<CategoryList> {
-    const { data } = await _http.get("/categories", {
-      params,
-      headers: { Accept: "application/ld+json" },
-    });
-    return normalizeListCat(data);
+    try {
+      const { data } = await _http.get(`/categories`, {
+        params,
+        headers: { Accept: "application/ld+json" },
+      });
+      return normalizeListCat(data);
+    } catch (err: any) {
+      throw new Error(apiError(err, "Impossible de charger les catégories"));
+    }
+  },
+
+  async get(idOrIri: number | string): Promise<Category> {
+    try {
+      const url =
+        typeof idOrIri === "string" && idOrIri.startsWith("/api/")
+          ? idOrIri
+          : `/categories/${idOrIri}`;
+      const { data } = await _http.get(url, {
+        headers: { Accept: "application/ld+json" },
+      });
+      return fromApiCat(data);
+    } catch (err: any) {
+      throw new Error(apiError(err, "Impossible de charger la catégorie"));
+    }
+  },
+
+  async create(payload: Partial<Category>): Promise<Category> {
+    try {
+      const body: any = {};
+      if (payload.name !== undefined) body.name = payload.name;
+      if (payload.description !== undefined)
+        body.description = payload.description ?? null;
+
+      const { data } = await _http.post(`/categories`, body, {
+        headers: {
+          "Content-Type": "application/ld+json",
+          Accept: "application/ld+json",
+        },
+      });
+      return fromApiCat(data);
+    } catch (err: any) {
+      throw new Error(apiError(err, "Création de la catégorie impossible"));
+    }
+  },
+
+  async update(id: number, patch: Partial<Category>): Promise<Category> {
+    try {
+      const body: any = {};
+      if (patch.name !== undefined) body.name = patch.name;
+      if (patch.description !== undefined)
+        body.description = patch.description ?? null;
+
+      const { data } = await _http.patch(`/categories/${id}`, body, {
+        headers: {
+          "Content-Type": "application/merge-patch+json",
+          Accept: "application/ld+json",
+        },
+      });
+      return fromApiCat(data);
+    } catch (err: any) {
+      throw new Error(apiError(err, "Mise à jour de la catégorie impossible"));
+    }
+  },
+
+  async remove(id: number): Promise<void> {
+    try {
+      await _http.delete(`/categories/${id}`, {
+        headers: { Accept: "application/ld+json" },
+      });
+    } catch (err: any) {
+      throw new Error(apiError(err, "Suppression de la catégorie impossible"));
+    }
   },
 };

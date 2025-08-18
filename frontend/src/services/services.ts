@@ -273,7 +273,6 @@ export const servicesApi = {
 
   async setActive(id: number, isActive: boolean): Promise<void> {
     try {
-      // le toggle fonctionne chez toi : on garde "1"/"0"
       await http.patch(
         `/services/${id}`,
         {
