@@ -11,7 +11,6 @@ import { Badge } from "@/components/ui/badge";
 import {
   BookOpen,
   Users,
-  Clock,
   CheckCircle,
   Star,
   Award,
@@ -23,123 +22,194 @@ import {
 } from "lucide-react";
 import Header from "@/components/Header";
 import FormationRegistrationForm from "@/components/forms/FormationRegistrationForm";
-import { formations as formationsSvc } from "@/services/formations";
+import { http } from "@/lib/http";
+import { useToast } from "@/hooks/use-toast";
+import { getCurrentUser, isAuthenticated } from "@/services/auth";
+import {
+  checkAlreadyRegistered,
+  listMyFormationIds,
+} from "@/services/registrations";
 
-type ApiFormation = {
+type PublicFormation = {
   id: number;
   title: string;
   description?: string | null;
   duration?: string | null;
-  price_cfa?: number | null;
-  price_type?: "fixed" | "quote" | null;
   level?: string | null;
   modules?: string[] | null;
+  price_type?: "fixed" | "quote" | string | null;
+  price_cfa?: number | null;
   date?: string | null;
   active: boolean;
+  max_participants?: number | null;
+  registrations_count?: number | null;
+  available_seats?: number | null;
+  type?: string | null;
 };
 
 const PER_PAGE = 12;
 
-function formatPrice(f: ApiFormation) {
-  if (
-    f.price_type === "quote" ||
-    f.price_cfa === null ||
-    typeof f.price_cfa === "undefined"
-  ) {
+const formatPrice = (f: PublicFormation) => {
+  if (f.price_type === "quote" || f.price_cfa == null || f.price_cfa <= 0)
     return "Sur devis";
-  }
-  return `${Number(f.price_cfa).toLocaleString()} FCFA`;
-}
+  return `${(f.price_cfa || 0).toLocaleString()} FCFA`;
+};
 
-function formatDuration(d?: string | null) {
-  return d && d.trim() ? d : "—";
-}
+const numericPrice = (f: PublicFormation) => {
+  if (f.price_type === "quote" || f.price_cfa == null) return 0;
+  return Number(f.price_cfa) || 0;
+};
 
-function formatLevel(l?: string | null) {
-  return l && l.trim() ? l : "—";
-}
+const isFull = (f: PublicFormation) => {
+  const max = f.max_participants ?? 0;
+  const available =
+    typeof f.available_seats === "number"
+      ? f.available_seats
+      : max > 0
+      ? max - (f.registrations_count ?? 0)
+      : Infinity;
+  return available <= 0;
+};
 
 const Formation = () => {
+  const { toast } = useToast();
+
   const [showRegistrationForm, setShowRegistrationForm] = useState(false);
   const [showSchedule, setShowSchedule] = useState(false);
   const [showCustomTraining, setShowCustomTraining] = useState(false);
   const [selectedFormation, setSelectedFormation] = useState<{
+    id: number;
     title: string;
     price: string;
+    priceNumber: number;
     duration: string;
     level: string;
+    type?: string;
+    date?: string;
   } | null>(null);
 
-  const [items, setItems] = useState<ApiFormation[]>([]);
+  const [items, setItems] = useState<PublicFormation[]>([]);
   const [page, setPage] = useState(1);
-  const [total, setTotal] = useState(0);
+  const [hasMore, setHasMore] = useState(true);
   const [loading, setLoading] = useState(true);
+  const [mineIds, setMineIds] = useState<number[]>([]);
 
-  const advantages = [
-    {
-      icon: Award,
-      title: "Formateurs experts",
-      description: "Juristes praticiens avec une solide expérience terrain",
-    },
-    {
-      icon: Users,
-      title: "Groupes restreints",
-      description: "Maximum 12 participants pour un apprentissage optimal",
-    },
-    {
-      icon: Calendar,
-      title: "Flexibilité",
-      description: "Formations en présentiel, distanciel ou sur site",
-    },
-    {
-      icon: CheckCircle,
-      title: "Certification",
-      description: "Attestation de formation délivrée à l'issue",
-    },
-  ];
+  const user = getCurrentUser();
+  const userKey = user ? `${user.id}|${user.email}` : null;
 
-  const handleFormationSelect = (formation: ApiFormation) => {
-    setSelectedFormation({
-      title: formation.title,
-      price: formatPrice(formation),
-      duration: formatDuration(formation.duration),
-      level: formatLevel(formation.level),
-    });
-    setShowRegistrationForm(true);
+  const loadFormations = async (pageNum = 1) => {
+    setLoading(true);
+    try {
+      const params: any = {
+        active: 1,
+        page: pageNum,
+        per_page: PER_PAGE,
+        sort: "date",
+        order: "desc",
+      };
+      const { data: payload } = await http.get("/public/formations", {
+        params,
+      });
+      const list: PublicFormation[] = Array.isArray(payload?.data)
+        ? payload.data
+        : Array.isArray(payload?.items)
+        ? payload.items
+        : Array.isArray(payload?.["hydra:member"])
+        ? payload["hydra:member"]
+        : Array.isArray(payload)
+        ? payload
+        : [];
+      const total =
+        payload?.meta?.total ??
+        payload?.total ??
+        payload?.["hydra:totalItems"] ??
+        list.length;
+      setItems(pageNum === 1 ? list : (prev) => [...prev, ...list]);
+      setHasMore(pageNum * PER_PAGE < Number(total));
+      setPage(pageNum);
+    } catch {
+      toast({
+        title: "Erreur",
+        description: "Impossible de charger les formations.",
+        variant: "destructive",
+      });
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const seatsLeft = (f: any) => {
+    const max = Number(f?.max_participants ?? 0);
+    if (f?.remaining_seats != null) return Number(f.remaining_seats);
+    const taken = Number(
+      f?.registrations_count ?? f?.booked ?? f?.enrolled ?? 0
+    );
+    if (!Number.isFinite(max) || max <= 0) return null;
+    return max - taken;
+  };
+  const isFormationFull = (f: any) => {
+    const left = seatsLeft(f);
+    const max = Number(f?.max_participants ?? 0);
+    return Number.isFinite(left) && max > 0 && (left as number) <= 0;
   };
 
   useEffect(() => {
-    const load = async () => {
-      setLoading(true);
-      try {
-        const res = await formationsSvc.listPublic({
-          page,
-          itemsPerPage: PER_PAGE,
-        });
-        const rows: ApiFormation[] = (res?.data ?? []).filter(
-          (f: ApiFormation) => !!f.active
-        );
-        rows.sort((a, b) => {
-          const da = a.date ? new Date(a.date).getTime() : 0;
-          const db = b.date ? new Date(b.date).getTime() : 0;
-          return db - da;
-        });
-        setItems(rows);
-        setTotal(res?.meta?.total ?? rows.length);
-      } catch {
-        setItems([]);
-        setTotal(0);
-      } finally {
-        setLoading(false);
-      }
-    };
-    load();
-  }, [page]);
+    loadFormations(1);
+  }, []);
 
-  const pagesCount = useMemo(
-    () => Math.max(1, Math.ceil(total / PER_PAGE)),
-    [total]
-  );
+  useEffect(() => {
+    if (!isAuthenticated()) {
+      setMineIds([]);
+      return;
+    }
+    listMyFormationIds()
+      .then((ids) => setMineIds(ids))
+      .catch(() => setMineIds([]));
+  }, [isAuthenticated()]);
+
+  const alreadyRegistered = (f: PublicFormation) => {
+    if (!isAuthenticated()) return false;
+    if (mineIds.includes(f.id)) return true;
+    return false;
+  };
+
+  const trySelectFormation = async (formation: PublicFormation) => {
+    if (isFull(formation)) return;
+    if (isAuthenticated()) {
+      const hasClientRole = (user?.roles || []).some(
+        (r) => r.toLowerCase() === "client"
+      );
+      if (!hasClientRole) {
+        toast({
+          title: "Accès refusé",
+          description:
+            "Seuls les utilisateurs avec le rôle Client peuvent s'inscrire.",
+          variant: "destructive",
+        });
+        return;
+      }
+      const dup = await checkAlreadyRegistered(formation.id, userKey);
+      if (dup) {
+        toast({
+          title: "Déjà inscrit",
+          description: "Vous êtes déjà inscrit à cette formation.",
+          variant: "destructive",
+        });
+        return;
+      }
+    }
+    setSelectedFormation({
+      id: formation.id,
+      title: formation.title,
+      price: formatPrice(formation),
+      priceNumber: numericPrice(formation),
+      duration: formation.duration || "—",
+      level: formation.level || "Tous niveaux",
+      type: formation.type || undefined,
+      date: formation.date || undefined,
+    });
+    setShowRegistrationForm(true);
+  };
 
   const scheduleData = [
     {
@@ -222,6 +292,29 @@ const Formation = () => {
     },
   ];
 
+  const advantages = [
+    {
+      icon: Award,
+      title: "Formateurs experts",
+      description: "Juristes praticiens avec une solide expérience terrain",
+    },
+    {
+      icon: Users,
+      title: "Groupes restreints",
+      description: "Maximum 12 participants pour un apprentissage optimal",
+    },
+    {
+      icon: Calendar,
+      title: "Flexibilité",
+      description: "Formations en présentiel, distanciel ou sur site",
+    },
+    {
+      icon: CheckCircle,
+      title: "Certification",
+      description: "Attestation de formation délivrée à l'issue",
+    },
+  ];
+
   if (showRegistrationForm) {
     return (
       <div className="min-h-screen bg-gradient-to-br from-slate-50 to-red-50">
@@ -231,6 +324,10 @@ const Formation = () => {
           onBack={() => {
             setShowRegistrationForm(false);
             setSelectedFormation(null);
+            if (isAuthenticated())
+              listMyFormationIds()
+                .then((ids) => setMineIds(ids))
+                .catch(() => {});
           }}
         />
       </div>
@@ -250,7 +347,6 @@ const Formation = () => {
             <ArrowLeft className="mr-2 h-4 w-4" />
             Retour aux formations
           </Button>
-
           <div className="text-center mb-8">
             <h1 className="text-3xl font-bold text-gray-900 mb-4">
               Planning des formations
@@ -260,7 +356,6 @@ const Formation = () => {
               place
             </p>
           </div>
-
           {scheduleData.map((monthData, index) => (
             <Card key={index} className="mb-8">
               <CardHeader>
@@ -315,7 +410,7 @@ const Formation = () => {
                               const f = items.find(
                                 (x) => x.title === session.title
                               );
-                              if (f) handleFormationSelect(f);
+                              if (f) trySelectFormation(f);
                             }}
                           >
                             Réserver
@@ -328,7 +423,6 @@ const Formation = () => {
               </CardContent>
             </Card>
           ))}
-
           <Card className="mt-8 border-red-200 bg-red-50">
             <CardContent className="p-6">
               <h3 className="text-lg font-semibold text-red-900 mb-4">
@@ -367,7 +461,6 @@ const Formation = () => {
             <ArrowLeft className="mr-2 h-4 w-4" />
             Retour aux formations
           </Button>
-
           <div className="text-center mb-8">
             <h1 className="text-3xl font-bold text-gray-900 mb-4">
               Formation sur mesure
@@ -376,7 +469,6 @@ const Formation = () => {
               Concevons ensemble une formation adaptée à vos besoins spécifiques
             </p>
           </div>
-
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 mb-8">
             <Card>
               <CardHeader>
@@ -384,63 +476,75 @@ const Formation = () => {
               </CardHeader>
               <CardContent>
                 <div className="space-y-4">
-                  {[
-                    {
-                      t: "Contenu personnalisé",
-                      d: "Formation adaptée à votre secteur d'activité et vos enjeux",
-                    },
-                    {
-                      t: "Flexibilité totale",
-                      d: "Dates, horaires et format selon vos contraintes",
-                    },
-                    {
-                      t: "Formateurs experts",
-                      d: "Juristes spécialisés dans votre domaine",
-                    },
-                    {
-                      t: "Support continu",
-                      d: "Accompagnement après la formation",
-                    },
-                  ].map((x, i) => (
-                    <div key={i} className="flex items-start">
-                      <CheckCircle className="h-5 w-5 text-green-500 mt-0.5 mr-3 flex-shrink-0" />
-                      <div>
-                        <h4 className="font-semibold">{x.t}</h4>
-                        <p className="text-sm text-gray-600">{x.d}</p>
-                      </div>
+                  <div className="flex items-start">
+                    <CheckCircle className="h-5 w-5 text-green-500 mt-0.5 mr-3 flex-shrink-0" />
+                    <div>
+                      <h4 className="font-semibold">Contenu personnalisé</h4>
+                      <p className="text-sm text-gray-600">
+                        Formation adaptée à votre secteur d'activité et vos
+                        enjeux
+                      </p>
                     </div>
-                  ))}
+                  </div>
+                  <div className="flex items-start">
+                    <CheckCircle className="h-5 w-5 text-green-500 mt-0.5 mr-3 flex-shrink-0" />
+                    <div>
+                      <h4 className="font-semibold">Flexibilité totale</h4>
+                      <p className="text-sm text-gray-600">
+                        Dates, horaires et format selon vos contraintes
+                      </p>
+                    </div>
+                  </div>
+                  <div className="flex items-start">
+                    <CheckCircle className="h-5 w-5 text-green-500 mt-0.5 mr-3 flex-shrink-0" />
+                    <div>
+                      <h4 className="font-semibold">Formateurs experts</h4>
+                      <p className="text-sm text-gray-600">
+                        Juristes spécialisés dans votre domaine
+                      </p>
+                    </div>
+                  </div>
+                  <div className="flex items-start">
+                    <CheckCircle className="h-5 w-5 text-green-500 mt-0.5 mr-3 flex-shrink-0" />
+                    <div>
+                      <h4 className="font-semibold">Support continu</h4>
+                      <p className="text-sm text-gray-600">
+                        Accompagnement après la formation
+                      </p>
+                    </div>
+                  </div>
                 </div>
               </CardContent>
             </Card>
-
             <Card>
               <CardHeader>
                 <CardTitle className="text-red-900">Processus</CardTitle>
               </CardHeader>
               <CardContent>
                 <div className="space-y-4">
-                  {[
-                    "Analyse des besoins",
-                    "Proposition personnalisée",
-                    "Validation et planification",
-                    "Réalisation",
-                  ].map((step, i) => (
-                    <div key={i} className="flex items-start">
+                  {[1, 2, 3, 4].map((n) => (
+                    <div key={n} className="flex items-start">
                       <div className="bg-red-100 text-red-900 rounded-full w-6 h-6 flex items-center justify-center text-sm font-semibold mr-3 mt-0.5">
-                        {i + 1}
+                        {n}
                       </div>
                       <div>
-                        <h4 className="font-semibold">{step}</h4>
+                        <h4 className="font-semibold">
+                          {n === 1
+                            ? "Analyse des besoins"
+                            : n === 2
+                            ? "Proposition personnalisée"
+                            : n === 3
+                            ? "Validation et planification"
+                            : "Réalisation"}
+                        </h4>
                         <p className="text-sm text-gray-600">
-                          {
-                            [
-                              "Évaluation de vos objectifs et contraintes",
-                              "Devis détaillé et programme sur mesure",
-                              "Finalisation des détails et calendrier",
-                              "Formation et évaluation des résultats",
-                            ][i]
-                          }
+                          {n === 1
+                            ? "Évaluation de vos objectifs et contraintes"
+                            : n === 2
+                            ? "Devis détaillé et programme sur mesure"
+                            : n === 3
+                            ? "Finalisation des détails et calendrier"
+                            : "Formation et évaluation des résultats"}
                         </p>
                       </div>
                     </div>
@@ -449,7 +553,6 @@ const Formation = () => {
               </CardContent>
             </Card>
           </div>
-
           <Card className="mb-8">
             <CardHeader>
               <CardTitle className="text-red-900">
@@ -458,29 +561,28 @@ const Formation = () => {
             </CardHeader>
             <CardContent>
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                {[
-                  {
-                    h: "Secteur bancaire",
-                    d: "Conformité réglementaire, lutte anti-blanchiment, protection des données",
-                  },
-                  {
-                    h: "E-commerce",
-                    d: "Droit du numérique, RGPD, conditions générales de vente",
-                  },
-                  {
-                    h: "Immobilier",
-                    d: "Droit immobilier, copropriété, gestion locative",
-                  },
-                ].map((b, i) => (
-                  <div key={i} className="p-4 border rounded-lg">
-                    <h4 className="font-semibold mb-2">{b.h}</h4>
-                    <p className="text-sm text-gray-600">{b.d}</p>
-                  </div>
-                ))}
+                <div className="p-4 border rounded-lg">
+                  <h4 className="font-semibold mb-2">Secteur bancaire</h4>
+                  <p className="text-sm text-gray-600">
+                    Conformité réglementaire, lutte anti-blanchiment, protection
+                    des données
+                  </p>
+                </div>
+                <div className="p-4 border rounded-lg">
+                  <h4 className="font-semibold mb-2">E-commerce</h4>
+                  <p className="text-sm text-gray-600">
+                    Droit du numérique, RGPD, conditions générales de vente
+                  </p>
+                </div>
+                <div className="p-4 border rounded-lg">
+                  <h4 className="font-semibold mb-2">Immobilier</h4>
+                  <p className="text-sm text-gray-600">
+                    Droit immobilier, copropriété, gestion locative
+                  </p>
+                </div>
               </div>
             </CardContent>
           </Card>
-
           <Card>
             <CardHeader>
               <CardTitle className="text-red-900">Demander un devis</CardTitle>
@@ -495,10 +597,14 @@ const Formation = () => {
                     className="w-full bg-red-900 hover:bg-red-800 mb-4"
                     onClick={() => {
                       setSelectedFormation({
+                        id: 0,
                         title: "Formation sur mesure",
                         price: "Sur devis",
+                        priceNumber: 0,
                         duration: "Variable",
                         level: "Personnalisé",
+                        type: "Hybride",
+                        date: undefined,
                       });
                       setShowCustomTraining(false);
                       setShowRegistrationForm(true);
@@ -511,22 +617,21 @@ const Formation = () => {
                     Formulaire détaillé pour analyser vos besoins
                   </p>
                 </div>
-
                 <div className="space-y-3">
                   <h4 className="font-semibold">
                     Ou contactez-nous directement :
                   </h4>
                   <div className="flex items-center text-sm text-gray-600">
-                    <Phone className="h-4 w-4 mr-2 text-red-900" /> +225 XX XX
-                    XX XX XX
+                    <Phone className="h-4 w-4 mr-2 text-red-900" />
+                    +225 XX XX XX XX XX
                   </div>
                   <div className="flex items-center text-sm text-gray-600">
-                    <Mail className="h-4 w-4 mr-2 text-red-900" />{" "}
+                    <Mail className="h-4 w-4 mr-2 text-red-900" />
                     formation@lawry.ci
                   </div>
                   <div className="flex items-center text-sm text-gray-600">
-                    <MapPin className="h-4 w-4 mr-2 text-red-900" /> Abidjan,
-                    Côte d'Ivoire
+                    <MapPin className="h-4 w-4 mr-2 text-red-900" />
+                    Abidjan, Côte d'Ivoire
                   </div>
                 </div>
               </div>
@@ -540,7 +645,6 @@ const Formation = () => {
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 to-red-50">
       <Header />
-
       <section className="py-16 bg-gradient-to-r from-red-900 to-red-800 text-white">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 text-center">
           <h1 className="text-4xl md:text-5xl font-bold mb-6">
@@ -560,7 +664,6 @@ const Formation = () => {
           </Button>
         </div>
       </section>
-
       <section className="py-16 bg-white">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="text-center mb-12">
@@ -571,115 +674,107 @@ const Formation = () => {
               Formations pratiques adaptées aux professionnels et entreprises
             </p>
           </div>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+            {items.map((formation) => {
+              const full = isFull(formation);
+              const dup = alreadyRegistered(formation);
+              return (
+                <Card
+                  key={formation.id}
+                  className={[
+                    "transition-all duration-300 group hover:scale-105",
+                    "hover:shadow-xl",
+                    isFull(formation) ? "opacity-60 grayscale" : "", // <- griser si complet
+                  ].join(" ")}
+                  aria-disabled={isFull(formation)}
+                >
+                  <CardHeader>
+                    <div className="flex items-center justify-between mb-2">
+                      <Badge
+                        variant="secondary"
+                        className="bg-red-100 text-red-900"
+                      >
+                        {formation.level || "Tous niveaux"}
+                      </Badge>
+                      <Badge
+                        variant="outline"
+                        className="border-red-900 text-red-900"
+                      >
+                        {formation.duration || "—"}
+                      </Badge>
+                    </div>
 
-          {loading ? (
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-              {Array.from({ length: 4 }).map((_, i) => (
-                <div
-                  key={i}
-                  className="h-60 rounded-xl bg-gray-100 animate-pulse"
-                />
-              ))}
-            </div>
-          ) : items.length === 0 ? (
-            <div className="text-center text-gray-600">
-              Aucune formation active pour le moment.
-            </div>
-          ) : (
-            <>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-                {items.map((formation) => (
-                  <Card
-                    key={formation.id}
-                    className="hover:shadow-xl transition-all duration-300 group hover:scale-105"
-                  >
-                    <CardHeader>
-                      <div className="flex items-center justify-between mb-2">
-                        <Badge
-                          variant="secondary"
-                          className="bg-red-100 text-red-900"
-                        >
-                          {formatLevel(formation.level)}
-                        </Badge>
-                        <Badge
-                          variant="outline"
-                          className="border-red-900 text-red-900"
-                        >
-                          {formatDuration(formation.duration)}
-                        </Badge>
-                      </div>
-                      <CardTitle className="text-red-900 flex items-center">
-                        <BookOpen className="h-5 w-5 mr-2" />
-                        {formation.title}
-                      </CardTitle>
-                      {formation.description && (
-                        <CardDescription>
-                          {formation.description}
-                        </CardDescription>
-                      )}
-                      <div className="text-2xl font-bold text-gray-900">
-                        {formatPrice(formation)}
-                      </div>
-                    </CardHeader>
-                    <CardContent>
-                      <div className="mb-6">
-                        <h4 className="font-semibold text-gray-900 mb-3">
-                          Modules inclus :
-                        </h4>
-                        {Array.isArray(formation.modules) &&
-                        formation.modules.length > 0 ? (
-                          <div className="grid grid-cols-2 gap-2">
-                            {formation.modules.map((module, idx) => (
-                              <div
-                                key={idx}
-                                className="flex items-center text-sm text-gray-600"
-                              >
-                                <CheckCircle className="h-3 w-3 text-green-500 mr-2 flex-shrink-0" />
-                                {module}
-                              </div>
-                            ))}
+                    <CardTitle className="text-red-900 flex items-center">
+                      <BookOpen className="h-5 w-5 mr-2" />
+                      {formation.title}
+                    </CardTitle>
+
+                    <CardDescription>{formation.description}</CardDescription>
+
+                    <div className="text-2xl font-bold text-gray-900">
+                      {formatPrice(formation)}
+                    </div>
+                  </CardHeader>
+
+                  <CardContent>
+                    <div className="mb-6">
+                      <h4 className="font-semibold text-gray-900 mb-3">
+                        Modules inclus :
+                      </h4>
+                      <div className="grid grid-cols-2 gap-2">
+                        {(formation.modules ?? []).map((module, idx) => (
+                          <div
+                            key={idx}
+                            className="flex items-center text-sm text-gray-600"
+                          >
+                            <CheckCircle className="h-3 w-3 text-green-500 mr-2 flex-shrink-0" />
+                            {module}
                           </div>
-                        ) : (
-                          <p className="text-sm text-gray-500">—</p>
+                        ))}
+                        {(formation.modules ?? []).length === 0 && (
+                          <div className="flex items-center text-sm text-gray-500">
+                            —
+                          </div>
                         )}
                       </div>
-                      <Button
-                        className="w-full bg-red-900 hover:bg-red-800 group-hover:scale-105 transition-all duration-200"
-                        onClick={() => handleFormationSelect(formation)}
-                      >
-                        S'inscrire à cette formation
-                      </Button>
-                    </CardContent>
-                  </Card>
-                ))}
-              </div>
+                    </div>
 
-              {pagesCount > 1 && (
-                <div className="flex items-center justify-center gap-2 mt-10">
-                  <Button
-                    variant="outline"
-                    disabled={page <= 1}
-                    onClick={() => setPage((p) => p - 1)}
-                  >
-                    Précédent
-                  </Button>
-                  <span className="text-sm text-gray-600">
-                    Page {page} / {pagesCount}
-                  </span>
-                  <Button
-                    variant="outline"
-                    disabled={page >= pagesCount}
-                    onClick={() => setPage((p) => p + 1)}
-                  >
-                    Suivant
-                  </Button>
-                </div>
-              )}
-            </>
-          )}
+                    <Button
+                      className="w-full bg-red-900 hover:bg-red-800 group-hover:scale-105 transition-all duration-200 disabled:opacity-60"
+                      disabled={
+                        isFull(formation) || alreadyRegistered(formation)
+                      }
+                      onClick={() => trySelectFormation(formation)}
+                    >
+                      {isFull(formation)
+                        ? "Nombre de places atteint"
+                        : alreadyRegistered(formation)
+                        ? "Déjà inscrit"
+                        : "S'inscrire à cette formation"}
+                    </Button>
+                  </CardContent>
+                </Card>
+              );
+            })}
+          </div>
+          <div className="mt-10 flex items-center justify-center gap-3">
+            <Button
+              variant="outline"
+              disabled={page <= 1 || loading}
+              onClick={() => loadFormations(page - 1)}
+            >
+              ← Précédent
+            </Button>
+            <Button
+              variant="outline"
+              disabled={!hasMore || loading}
+              onClick={() => loadFormations(page + 1)}
+            >
+              Suivant →
+            </Button>
+          </div>
         </div>
       </section>
-
       <section className="py-16 bg-gradient-to-br from-gray-50 to-red-50">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="text-center mb-12">
@@ -687,26 +782,47 @@ const Formation = () => {
               Pourquoi choisir nos formations ?
             </h2>
           </div>
-
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-8">
-            {advantages.map((advantage, index) => (
+            {[
+              {
+                icon: Award,
+                title: "Formateurs experts",
+                description:
+                  "Juristes praticiens avec une solide expérience terrain",
+              },
+              {
+                icon: Users,
+                title: "Groupes restreints",
+                description:
+                  "Maximum 12 participants pour un apprentissage optimal",
+              },
+              {
+                icon: Calendar,
+                title: "Flexibilité",
+                description: "Formations en présentiel, distanciel ou sur site",
+              },
+              {
+                icon: CheckCircle,
+                title: "Certification",
+                description: "Attestation de formation délivrée à l'issue",
+              },
+            ].map((adv, i) => (
               <div
-                key={index}
+                key={i}
                 className="text-center group hover:scale-105 transition-transform duration-200"
               >
                 <div className="bg-red-100 w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-4 group-hover:bg-red-200 transition-colors">
-                  <advantage.icon className="h-8 w-8 text-red-900" />
+                  <adv.icon className="h-8 w-8 text-red-900" />
                 </div>
                 <h3 className="text-lg font-semibold text-gray-900 mb-2">
-                  {advantage.title}
+                  {adv.title}
                 </h3>
-                <p className="text-gray-600">{advantage.description}</p>
+                <p className="text-gray-600">{adv.description}</p>
               </div>
             ))}
           </div>
         </div>
       </section>
-
       <section className="py-16 bg-white">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="text-center mb-12">
@@ -714,7 +830,6 @@ const Formation = () => {
               Témoignages
             </h2>
           </div>
-
           <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
             {[
               {
@@ -738,34 +853,29 @@ const Formation = () => {
                   "Mise à jour parfaite de mes connaissances. Je recommande vivement ces formations.",
                 rating: 5,
               },
-            ].map((testimonial, index) => (
+            ].map((t, index) => (
               <Card
                 key={index}
                 className="p-6 hover:shadow-lg transition-shadow"
               >
                 <div className="flex items-center mb-4">
-                  {[...Array(testimonial.rating)].map((_, i) => (
+                  {Array.from({ length: t.rating }).map((_, i) => (
                     <Star
                       key={i}
                       className="h-4 w-4 text-yellow-400 fill-current"
                     />
                   ))}
                 </div>
-                <p className="text-gray-600 mb-4 italic">
-                  "{testimonial.content}"
-                </p>
+                <p className="text-gray-600 mb-4 italic">"{t.content}"</p>
                 <div>
-                  <p className="font-semibold text-gray-900">
-                    {testimonial.name}
-                  </p>
-                  <p className="text-sm text-gray-500">{testimonial.role}</p>
+                  <p className="font-semibold text-gray-900">{t.name}</p>
+                  <p className="text-sm text-gray-500">{t.role}</p>
                 </div>
               </Card>
             ))}
           </div>
         </div>
       </section>
-
       <section className="py-16 bg-gradient-to-r from-red-900 to-red-800 text-white">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 text-center">
           <h2 className="text-3xl font-bold mb-4">

@@ -149,27 +149,6 @@ const Login = () => {
                   </div>
                 </div>
               </div>
-
-              {/* Infos démo */}
-              <div className="mt-8 p-6 bg-white rounded-lg shadow-sm border border-red-100">
-                <h3 className="font-semibold text-gray-900 mb-3">
-                  Comptes de démonstration :
-                </h3>
-                <div className="space-y-2 text-sm">
-                  <div className="flex justify-between">
-                    <span className="font-medium text-blue-600">Admin :</span>
-                    <span className="text-gray-600">
-                      admin@lawry.ci / admin123
-                    </span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="font-medium text-green-600">Client :</span>
-                    <span className="text-gray-600">
-                      client@lawry.ci / client123
-                    </span>
-                  </div>
-                </div>
-              </div>
             </div>
           </div>
 
@@ -284,29 +263,6 @@ const Login = () => {
                       Créer un compte
                     </Link>
                   </p>
-                </div>
-
-                {/* Mobile - Infos de connexion */}
-                <div className="lg:hidden p-4 bg-gray-50 rounded-lg">
-                  <h4 className="font-semibold text-gray-900 mb-2 text-sm">
-                    Comptes de test :
-                  </h4>
-                  <div className="space-y-1 text-xs">
-                    <div>
-                      <span className="font-medium text-blue-600">Admin :</span>
-                      <span className="text-gray-600 ml-1">
-                        admin@lawry.ci / admin123
-                      </span>
-                    </div>
-                    <div>
-                      <span className="font-medium text-green-600">
-                        Client :
-                      </span>
-                      <span className="text-gray-600 ml-1">
-                        client@lawry.ci / client123
-                      </span>
-                    </div>
-                  </div>
                 </div>
               </CardContent>
             </Card>

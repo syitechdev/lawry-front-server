@@ -9,13 +9,13 @@ return new class extends Migration {
     {
         Schema::create('registrations', function (Blueprint $table) {
             $table->id();
-            $table->foreignId('user_id')->nullable()->constrained()->nullOnDelete();
-            $table->json('guest')->nullable();
-            $table->json('preferences')->nullable();
-            $table->unsignedBigInteger('total_price')->default(0);
-            $table->boolean('payment_required')->default(false);
-            $table->string('status')->default('pending');
+            $table->foreignId('formation_id')->constrained()->cascadeOnDelete();
+            $table->foreignId('user_id')->constrained()->cascadeOnDelete();
+            $table->string('status')->default('confirmed');
+            $table->unsignedBigInteger('amount_cfa')->nullable();
+            $table->string('price_type')->nullable();
             $table->timestamps();
+            $table->unique(['formation_id', 'user_id']);
         });
     }
 

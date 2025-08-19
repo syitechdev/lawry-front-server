@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useMemo } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -14,7 +14,7 @@ import {
   LogOut,
   ChevronLeft,
   ChevronRight,
-  ChevronDown, // ⟵ pour le dropdown
+  ChevronDown,
   Shield,
   Bell,
   User,
@@ -23,12 +23,12 @@ import {
   Briefcase,
   Crown,
   Crop,
-  Tags, // ⟵ icône parent "Types"
-  Building2, // ⟵ icône "Types d’entreprise"
-  List, // ⟵ icône "Types"
+  Tags,
+  Building2,
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { logout } from "@/lib/auth";
+import { http } from "@/lib/http"; // <<< NEW
 
 type RoleName = "Admin" | "Client" | string;
 
@@ -130,43 +130,114 @@ const BackofficeSidebar = ({
     }
   };
 
-  // Menu
-  const adminMenuItems = [
-    { icon: LayoutDashboard, label: "Dashboard", path: "/admin", badge: null },
-    { icon: FileText, label: "Demandes", path: "/admin/demandes", badge: "5" },
-    { icon: Users, label: "Clients", path: "/admin/clients", badge: null },
-    {
-      icon: ShoppingCart,
-      label: "Boutique",
-      path: "/admin/boutique",
-      badge: null,
-    },
-    {
-      icon: GraduationCap,
-      label: "Formations",
-      path: "/admin/formations",
-      badge: null,
-    }, // lien simple
-    {
-      icon: Briefcase,
-      label: "Nos Services",
-      path: "/admin/services",
-      badge: null,
-    },
-    { icon: Crown, label: "Plans & Tarifs", path: "/admin/plans", badge: null },
-    { icon: Rss, label: "Blog", path: "/admin/blog", badge: null },
-    { icon: Crop, label: "Catégories", path: "/admin/categories", badge: null },
-    { icon: Tags, label: "Types", path: "/admin/types", badge: null }, // ⟵ parent avec sous-menu
-    {
-      icon: Settings,
-      label: "Paramètres",
-      path: "/admin/parametres",
-      badge: null,
-    },
-  ];
+  const [unreadRegs, setUnreadRegs] = useState<number | null>(null);
+
+  const fetchUnreadRegistrationsCount = async () => {
+    if (role !== "admin") return;
+    try {
+      const { data } = await http.get("/admin/registrations/unread-count");
+      const c = Number(data?.count ?? 0);
+      setUnreadRegs(c > 0 ? c : null); //
+    } catch {
+      setUnreadRegs(null);
+    }
+  };
+
+  useEffect(() => {
+    fetchUnreadRegistrationsCount();
+  }, [location.pathname, role, authToken]);
+  // ---------------------------------------------------------------------
+
+  // Menu (dynamique pour le badge "Formation users")
+  const adminMenuItems = useMemo(
+    () => [
+      {
+        icon: LayoutDashboard,
+        label: "Dashboard",
+        path: "/admin",
+        badge: null as string | null,
+      },
+      {
+        icon: FileText,
+        label: "Demandes",
+        path: "/admin/demandes",
+        badge: null as string | null,
+      },
+
+      {
+        icon: Users,
+        label: "Clients",
+        path: "/admin/clients",
+        badge: null as string | null,
+      },
+      {
+        icon: ShoppingCart,
+        label: "Boutique",
+        path: "/admin/boutique",
+        badge: null as string | null,
+      },
+      {
+        icon: GraduationCap,
+        label: "Formations",
+        path: "/admin/formations",
+        badge: null as string | null,
+      },
+
+      {
+        icon: FileText,
+        label: "Formation users",
+        path: "/admin/inscriptions",
+        badge:
+          unreadRegs !== null && unreadRegs > 0 ? String(unreadRegs) : null, // <<< DYNAMIQUE
+      },
+
+      {
+        icon: Briefcase,
+        label: "Nos Services",
+        path: "/admin/services",
+        badge: null as string | null,
+      },
+      {
+        icon: Crown,
+        label: "Plans & Tarifs",
+        path: "/admin/plans",
+        badge: null as string | null,
+      },
+      {
+        icon: Rss,
+        label: "Blog",
+        path: "/admin/blog",
+        badge: null as string | null,
+      },
+      {
+        icon: Crop,
+        label: "Catégories",
+        path: "/admin/categories",
+        badge: null as string | null,
+      },
+      {
+        icon: Tags,
+        label: "Types",
+        path: "/admin/types",
+        badge: null as string | null,
+      },
+      {
+        icon: Settings,
+        label: "Paramètres",
+        path: "/admin/parametres",
+        badge: null as string | null,
+      },
+    ],
+    [unreadRegs]
+  );
 
   const clientMenuItems = [
-    { icon: LayoutDashboard, label: "Dashboard", path: "/client", badge: null },
+    {
+      icon: LayoutDashboard,
+      label: "Dashboard",
+      path: "/client",
+      badge: null as string | null,
+    },
     {
       icon: FileText,
       label: "Mes Commandes",
@@ -177,21 +248,26 @@ const BackofficeSidebar = ({
       icon: CreditCard,
       label: "Paiements",
       path: "/client/paiements",
-      badge: null,
+      badge: null as string | null,
     },
     {
       icon: ShoppingCart,
       label: "Boutique",
       path: "/client/boutique",
-      badge: null,
+      badge: null as string | null,
     },
     {
       icon: Crown,
       label: "Plans & Tarifs",
       path: "/client/plans",
-      badge: null,
+      badge: null as string | null,
     },
-    { icon: User, label: "Profil", path: "/client/profil", badge: null },
+    {
+      icon: User,
+      label: "Profil",
+      path: "/client/profil",
+      badge: null as string | null,
+    },
   ];
 
   const menuItems = role === "admin" ? adminMenuItems : clientMenuItems;
@@ -293,12 +369,12 @@ const BackofficeSidebar = ({
                 <div className="flex-1">
                   <p className="font-semibold text-sm">
                     {role === "admin"
-                      ? "5 dossiers urgents"
+                      ? "Dossiers à traiter"
                       : "2 nouveaux messages"}
                   </p>
                   <p className="text-xs opacity-80 mt-1">
                     {role === "admin"
-                      ? "Nécessitent votre attention immédiate"
+                      ? "Surveillez aussi les nouvelles inscriptions"
                       : "De votre juriste conseil"}
                   </p>
                 </div>
@@ -313,7 +389,7 @@ const BackofficeSidebar = ({
         <nav className="pb-4">
           <div className="space-y-2">
             {menuItems.map((item, index) => {
-              const Icon = item.icon;
+              const Icon = item.icon as any;
 
               // Bloc spécial pour "Types" (avec sous-menu)
               if (role === "admin" && item.label === "Types") {
@@ -384,7 +460,7 @@ const BackofficeSidebar = ({
               }
 
               // Rendu standard pour les autres entrées
-              const active = isActiveLink(item.path);
+              const active = location.pathname === item.path;
               return (
                 <Link
                   key={index}

@@ -29,11 +29,21 @@ import {
 } from "@/components/ui/select";
 import { Separator } from "@/components/ui/separator";
 import { Badge } from "@/components/ui/badge";
-import { BookOpen, Users, CheckCircle, CreditCard } from "lucide-react";
+import {
+  BookOpen,
+  Users,
+  CheckCircle,
+  CreditCard,
+  Calendar,
+} from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
-import { formations as formationsSvc } from "@/services/formations";
-//import { auth } from "@/services/auth";
-import { registrations } from "@/services/registrations";
+import PaymentForm from "./PaymentForm";
+import { getCurrentUser, isAuthenticated } from "@/services/auth";
+import {
+  checkAlreadyRegistered,
+  createRegistration,
+  markRegisteredLocal,
+} from "@/services/registrations";
 
 const formationRegistrationSchema = z.object({
   firstName: z.string().min(1, "Prénom requis"),
@@ -41,43 +51,27 @@ const formationRegistrationSchema = z.object({
   email: z.string().email("Email invalide"),
   phone: z.string().min(1, "Téléphone requis"),
   profession: z.string().min(1, "Profession requise"),
-  company: z.string().optional().nullable(),
+  company: z.string().optional(),
   experience: z.enum(["debutant", "intermediaire", "avance"]),
-  selectedFormations: z
-    .array(z.number())
-    .min(1, "Choisissez au moins une formation"),
   motivation: z.string().min(10, "Motivation requise (minimum 10 caractères)"),
-  specificNeeds: z.string().optional().nullable(),
-  sessionFormat: z.enum(["presentiel", "distanciel", "mixte"]),
-  preferredDates: z.string().optional().nullable(),
+  specificNeeds: z.string().optional(),
+  sessionFormat: z.enum(["presentiel", "distanciel"]),
 });
 
 type FormationRegistrationData = z.infer<typeof formationRegistrationSchema>;
 
 interface FormationRegistrationFormProps {
   selectedFormation?: {
+    id: number;
     title: string;
     price: string;
+    priceNumber: number;
     duration: string;
     level: string;
+    type?: string;
+    date?: string;
   } | null;
   onBack: () => void;
-}
-
-type ApiFormation = {
-  id: number;
-  title: string;
-  description?: string | null;
-  duration?: string | null;
-  price_cfa?: number | null;
-  price_type?: "fixed" | "quote" | null;
-  level?: string | null;
-  active: boolean;
-};
-
-function priceLabel(f: ApiFormation) {
-  if (f.price_type === "quote" || !f.price_cfa) return "Sur devis";
-  return `${Number(f.price_cfa).toLocaleString()} FCFA`;
 }
 
 const FormationRegistrationForm: React.FC<FormationRegistrationFormProps> = ({
@@ -86,73 +80,52 @@ const FormationRegistrationForm: React.FC<FormationRegistrationFormProps> = ({
 }) => {
   const { toast } = useToast();
   const [currentStep, setCurrentStep] = useState(1);
-  const [me, setMe] = useState<null | { id: number }>(null);
-  const [catalog, setCatalog] = useState<ApiFormation[]>([]);
-  const [loadingCatalog, setLoadingCatalog] = useState(true);
+  const [formData, setFormData] = useState<FormationRegistrationData | null>(
+    null
+  );
+  const [showPayment, setShowPayment] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
+  const user = getCurrentUser();
+  const userKey = user ? `${user.id}|${user.email}` : null;
+
+  const computedDefaultSession = useMemo(() => {
+    const t = (selectedFormation?.type || "").toLowerCase();
+    if (t.includes("présentiel")) return "presentiel";
+    if (t.includes("en ligne")) return "distanciel";
+    return "presentiel";
+  }, [selectedFormation?.type]);
+
+  const isHybrid = (selectedFormation?.type || "")
+    .toLowerCase()
+    .includes("hybride");
 
   const form = useForm<FormationRegistrationData>({
     resolver: zodResolver(formationRegistrationSchema),
     defaultValues: {
-      selectedFormations: [],
-      sessionFormat: "presentiel",
+      sessionFormat: computedDefaultSession as any,
       experience: "debutant",
     },
+    mode: "onChange",
   });
 
   useEffect(() => {
-    const boot = async () => {
-      try {
-        const m = await auth.me();
-        if (m) {
-          setMe({ id: m.id });
-          form.reset({
-            ...form.getValues(),
-            firstName: m.first_name ?? "",
-            lastName: m.last_name ?? "",
-            email: m.email ?? "",
-            phone: m.phone ?? "",
-            profession: m.profession ?? "",
-            company: m.company ?? "",
-          });
-        }
-      } catch {}
-      try {
-        setLoadingCatalog(true);
-        const res = await formationsSvc.listPublic({
-          page: 1,
-          itemsPerPage: 100,
-          active: 1,
-          order: { date: "desc" },
-        });
-        const items: ApiFormation[] = (res?.data ?? []).filter(
-          (f: ApiFormation) => !!f.active
-        );
-        items.sort((a, b) => (b.id ?? 0) - (a.id ?? 0));
-        setCatalog(items);
-        if (selectedFormation?.title) {
-          const match = items.find((f) => f.title === selectedFormation.title);
-          if (match) {
-            form.setValue("selectedFormations", [match.id], {
-              shouldValidate: true,
-            });
-          }
-        }
-      } finally {
-        setLoadingCatalog(false);
-      }
-    };
-    boot();
-  }, []);
+    form.setValue("sessionFormat", computedDefaultSession as any, {
+      shouldValidate: true,
+    });
+  }, [computedDefaultSession]);
 
-  const totalPayable = useMemo(() => {
-    const ids = form.watch("selectedFormations");
-    const picked = catalog.filter((f) => ids.includes(f.id));
-    return picked.reduce((acc, f) => {
-      if (f.price_type === "fixed" && f.price_cfa && f.price_cfa > 0)
-        return acc + f.price_cfa;
-      return acc;
-    }, 0);
-  }, [catalog, form.watch("selectedFormations")]);
+  useEffect(() => {
+    if (user) {
+      const [first, ...rest] = (user.name || "").trim().split(/\s+/);
+      const last = rest.join(" ");
+      if (first) form.setValue("firstName", first, { shouldValidate: true });
+      if (last) form.setValue("lastName", last, { shouldValidate: true });
+      if (user.email)
+        form.setValue("email", user.email, { shouldValidate: true });
+      if (user.phone)
+        form.setValue("phone", user.phone, { shouldValidate: true });
+    }
+  }, []);
 
   const steps = [
     { number: 1, title: "Informations personnelles", icon: Users },
@@ -160,71 +133,186 @@ const FormationRegistrationForm: React.FC<FormationRegistrationFormProps> = ({
     { number: 3, title: "Finalisation", icon: CheckCircle },
   ];
 
+  const stepRequiredFields: Record<
+    number,
+    Array<keyof FormationRegistrationData>
+  > = {
+    1: ["firstName", "lastName", "email", "phone", "profession", "experience"],
+    2: ["sessionFormat"],
+    3: ["motivation"],
+  };
+
+  const goNext = async () => {
+    const fields = stepRequiredFields[currentStep] || [];
+    const ok = await form.trigger(fields as any, { shouldFocus: true });
+    if (ok) setCurrentStep((s) => s + 1);
+  };
+
+  const goPrev = () => setCurrentStep((s) => Math.max(1, s - 1));
+
   const onSubmit = async (data: FormationRegistrationData) => {
-    try {
-      const ids = data.selectedFormations;
-      if (!ids.length) {
-        toast({
-          title: "Formation manquante",
-          description: "Choisissez au moins une formation.",
-          variant: "destructive",
-        });
-        return;
-      }
-      const payload = {
-        user_id: me?.id,
-        guest: me
-          ? undefined
-          : {
-              first_name: data.firstName,
-              last_name: data.lastName,
-              email: data.email,
-              phone: data.phone,
-              profession: data.profession,
-              company: data.company ?? null,
-            },
-        formations: ids,
-        preferences: {
-          session_format: data.sessionFormat,
-          preferred_dates: data.preferredDates ?? null,
-          motivation: data.motivation,
-          specific_needs: data.specificNeeds ?? null,
-        },
-        total_price: totalPayable,
-        payment_required: totalPayable > 0,
-      };
-      await registrations.create(payload);
-      toast({
-        title: "Demande enregistrée",
-        description:
-          totalPayable > 0
-            ? "Votre inscription est enregistrée. Le paiement sera finalisé plus tard."
-            : "Votre inscription est confirmée.",
-      });
-      onBack();
-    } catch (e: any) {
+    if (!selectedFormation) {
       toast({
         title: "Erreur",
-        description:
-          e?.response?.data?.message ||
-          "Impossible d'enregistrer l'inscription.",
+        description: "Aucune formation sélectionnée.",
         variant: "destructive",
       });
+      return;
+    }
+    try {
+      setSubmitting(true);
+
+      // (Optionnel) Si connecté et pas Client, on bloque (tu l’avais déjà)
+      if (isAuthenticated()) {
+        const hasClientRole = (user?.roles || []).some(
+          (r) => r.toLowerCase() === "client"
+        );
+        if (!hasClientRole) {
+          toast({
+            title: "Accès refusé",
+            description:
+              "Seuls les utilisateurs avec le rôle Client peuvent s'inscrire.",
+            variant: "destructive",
+          });
+          setSubmitting(false);
+          return;
+        }
+      }
+
+      // Laisse le back trancher pour les doublons/capacité.
+      const payload = {
+        formation_id: selectedFormation.id,
+        first_name: data.firstName,
+        last_name: data.lastName,
+        email: data.email,
+        phone: data.phone,
+        profession: data.profession,
+        company: data.company || null,
+        experience: data.experience,
+        session_format: data.sessionFormat,
+        motivation: data.motivation,
+        specific_needs: data.specificNeeds || null,
+        source: "website",
+      };
+
+      await createRegistration(payload);
+
+      // Marque local : si pas d'user, utilise la clé email
+      const key =
+        isAuthenticated() && user
+          ? `${user.id}|${user.email}`
+          : `email:${data.email.toLowerCase()}`;
+      markRegisteredLocal(selectedFormation.id, key);
+
+      const isQuote =
+        /devis/i.test(selectedFormation.price) ||
+        selectedFormation.priceNumber <= 0;
+
+      toast({
+        title: isQuote ? "Demande enregistrée" : "Inscription enregistrée",
+        description: isQuote
+          ? "Votre demande a été prise en compte."
+          : "Votre inscription a été enregistrée.",
+      });
+
+      onBack();
+    } catch (e: any) {
+      const status = e?.response?.status;
+      const message =
+        e?.response?.data?.message ||
+        e?.message ||
+        "Une erreur est survenue lors de l'enregistrement.";
+
+      if (status === 409) {
+        // Doublon
+        toast({
+          title: "Déjà inscrit",
+          description:
+            "Vous êtes déjà inscrit à cette formation. Une seule inscription est autorisée.",
+          variant: "destructive",
+        });
+      } else if (status === 422) {
+        toast({
+          title: "Inscription impossible",
+          description: /capacit|complet|place/i.test(message)
+            ? "Nombre de places atteint."
+            : message,
+          variant: "destructive",
+        });
+      } else {
+        toast({
+          title: "Erreur",
+          description: message,
+          variant: "destructive",
+        });
+      }
+    } finally {
+      setSubmitting(false);
     }
   };
 
-  const selectedFormationData = useMemo(() => {
-    if (!selectedFormation?.title) return null;
-    const f = catalog.find((x) => x.title === selectedFormation.title);
-    if (!f) return null;
-    return {
-      title: f.title,
-      price: priceLabel(f),
-      duration: f.duration ?? "—",
-      level: f.level ?? "—",
-      description: f.description ?? "",
+  const selectedBlock = selectedFormation ? (
+    <Card className="mb-8 border-red-200 bg-red-50">
+      <CardHeader>
+        <div className="flex items-center justify-between">
+          <div>
+            <CardTitle className="text-red-900 flex items-center">
+              <BookOpen className="h-5 w-5 mr-2" />
+              {selectedFormation.title}
+            </CardTitle>
+            <CardDescription className="mt-2">
+              {selectedFormation.level} • {selectedFormation.duration}
+            </CardDescription>
+            <div className="flex items-center text-sm text-gray-700 mt-2">
+              <Calendar className="h-4 w-4 mr-2 text-red-900" />
+              {selectedFormation.date
+                ? new Date(selectedFormation.date).toLocaleDateString()
+                : "Date à venir"}
+            </div>
+          </div>
+          <div className="text-right">
+            <div className="text-2xl font-bold text-red-900">
+              {selectedFormation.price}
+            </div>
+            <div className="flex gap-2 mt-2">
+              <Badge variant="secondary">{selectedFormation.level}</Badge>
+              <Badge variant="outline">{selectedFormation.duration}</Badge>
+            </div>
+            <div className="mt-2">
+              <Badge className="bg-red-100 text-red-900">
+                {selectedFormation.type || "—"}
+              </Badge>
+            </div>
+          </div>
+        </div>
+      </CardHeader>
+    </Card>
+  ) : null;
+
+  if (showPayment && selectedFormation && formData) {
+    const formationType = {
+      id: String(selectedFormation.id),
+      name: selectedFormation.title,
+      price: selectedFormation.priceNumber,
+      description: "",
     };
-  }, [catalog, selectedFormation?.title]);
+    return (
+      <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+        <Button
+          variant="outline"
+          onClick={() => setShowPayment(false)}
+          className="mb-6"
+        >
+          ← Retour au formulaire
+        </Button>
+        <PaymentForm
+          contractType={formationType}
+          onPaymentSuccess={() => onBack()}
+          contractData={formData}
+        />
+      </div>
+    );
+  }
 
   return (
     <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
@@ -232,39 +320,14 @@ const FormationRegistrationForm: React.FC<FormationRegistrationFormProps> = ({
         ← Retour aux formations
       </Button>
 
-      {selectedFormationData && (
-        <Card className="mb-8 border-red-200 bg-red-50">
-          <CardHeader>
-            <div className="flex items-center justify-between">
-              <div>
-                <CardTitle className="text-red-900 flex items-center">
-                  <BookOpen className="h-5 w-5 mr-2" />
-                  {selectedFormationData.title}
-                </CardTitle>
-                <CardDescription className="mt-2">
-                  {selectedFormationData.description}
-                </CardDescription>
-              </div>
-              <div className="text-right">
-                <div className="text-2xl font-bold text-red-900">
-                  {selectedFormationData.price}
-                </div>
-                <div className="flex gap-2 mt-2">
-                  <Badge variant="secondary">
-                    {selectedFormationData.level}
-                  </Badge>
-                  <Badge variant="outline">
-                    {selectedFormationData.duration}
-                  </Badge>
-                </div>
-              </div>
-            </div>
-          </CardHeader>
-        </Card>
-      )}
+      {selectedBlock}
 
       <div className="flex items-center justify-center mb-8">
-        {steps.map((step, index) => (
+        {[
+          { number: 1, title: "Informations personnelles", icon: Users },
+          { number: 2, title: "Formation et préférences", icon: BookOpen },
+          { number: 3, title: "Finalisation", icon: CheckCircle },
+        ].map((step, index) => (
           <div key={step.number} className="flex items-center">
             <div
               className={`flex items-center justify-center w-10 h-10 rounded-full border-2 ${
@@ -284,7 +347,7 @@ const FormationRegistrationForm: React.FC<FormationRegistrationFormProps> = ({
                 {step.title}
               </p>
             </div>
-            {index < steps.length - 1 && (
+            {index < 2 && (
               <div
                 className={`w-8 h-0.5 mx-4 ${
                   currentStep > step.number ? "bg-red-900" : "bg-gray-300"
@@ -299,7 +362,7 @@ const FormationRegistrationForm: React.FC<FormationRegistrationFormProps> = ({
         <CardHeader>
           <CardTitle>Inscription à la formation</CardTitle>
           <CardDescription>
-            Remplissez le formulaire pour vous inscrire
+            Remplissez le formulaire pour vous inscrire à cette formation
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -432,117 +495,46 @@ const FormationRegistrationForm: React.FC<FormationRegistrationFormProps> = ({
                   <h3 className="text-lg font-semibold mb-4">
                     Formation et préférences
                   </h3>
-
-                  <FormField
-                    control={form.control}
-                    name="selectedFormations"
-                    render={() => (
-                      <FormItem>
-                        <FormLabel>Choisissez vos formations *</FormLabel>
-                        <div className="space-y-2">
-                          {loadingCatalog ? (
-                            <div className="text-sm text-gray-500">
-                              Chargement…
-                            </div>
-                          ) : catalog.length === 0 ? (
-                            <div className="text-sm text-gray-500">
-                              Aucune formation disponible
-                            </div>
-                          ) : (
-                            catalog.map((f) => {
-                              const checked = form
-                                .watch("selectedFormations")
-                                .includes(f.id);
-                              return (
-                                <label
-                                  key={f.id}
-                                  className="flex items-center justify-between p-3 border rounded-lg"
-                                >
-                                  <div className="flex items-center gap-3">
-                                    <input
-                                      type="checkbox"
-                                      checked={checked}
-                                      onChange={(e) => {
-                                        const cur =
-                                          form.getValues("selectedFormations");
-                                        const next = e.target.checked
-                                          ? [...cur, f.id]
-                                          : cur.filter((x) => x !== f.id);
-                                        form.setValue(
-                                          "selectedFormations",
-                                          next,
-                                          { shouldValidate: true }
-                                        );
-                                      }}
-                                    />
-                                    <div>
-                                      <div className="font-medium text-gray-900">
-                                        {f.title}
-                                      </div>
-                                      <div className="text-xs text-gray-500">
-                                        {f.level ?? "—"} • {f.duration ?? "—"}
-                                      </div>
-                                    </div>
-                                  </div>
-                                  <Badge variant="outline">
-                                    {priceLabel(f)}
-                                  </Badge>
-                                </label>
-                              );
-                            })
-                          )}
-                        </div>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
-
-                  <FormField
-                    control={form.control}
-                    name="sessionFormat"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>Format de session préféré *</FormLabel>
-                        <Select
-                          onValueChange={field.onChange}
-                          defaultValue={field.value}
-                        >
-                          <FormControl>
-                            <SelectTrigger>
-                              <SelectValue />
-                            </SelectTrigger>
-                          </FormControl>
-                          <SelectContent>
-                            <SelectItem value="presentiel">
-                              Présentiel
-                            </SelectItem>
-                            <SelectItem value="distanciel">
-                              Distanciel
-                            </SelectItem>
-                            <SelectItem value="mixte">Mixte</SelectItem>
-                          </SelectContent>
-                        </Select>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
-
-                  <FormField
-                    control={form.control}
-                    name="preferredDates"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>Dates préférées (optionnel)</FormLabel>
-                        <FormControl>
-                          <Input
-                            placeholder="Ex: Semaine du 15 janvier, ou tous les mercredis"
-                            {...field}
-                          />
-                        </FormControl>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
+                  {!isHybrid && (
+                    <div className="flex items-center gap-2">
+                      <FormLabel>Format de session</FormLabel>
+                      <Badge variant="secondary">
+                        {form.watch("sessionFormat") === "presentiel"
+                          ? "Présentiel"
+                          : "En ligne"}
+                      </Badge>
+                    </div>
+                  )}
+                  {isHybrid && (
+                    <FormField
+                      control={form.control}
+                      name="sessionFormat"
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>Format de session préféré *</FormLabel>
+                          <Select
+                            onValueChange={field.onChange}
+                            defaultValue={field.value}
+                          >
+                            <FormControl>
+                              <SelectTrigger>
+                                <SelectValue />
+                              </SelectTrigger>
+                            </FormControl>
+                            <SelectContent>
+                              <SelectItem value="presentiel">
+                                Présentiel
+                              </SelectItem>
+                              <SelectItem value="distanciel">
+                                En ligne
+                              </SelectItem>
+                            </SelectContent>
+                          </Select>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+                  )}
                 </div>
               )}
 
@@ -551,24 +543,6 @@ const FormationRegistrationForm: React.FC<FormationRegistrationFormProps> = ({
                   <h3 className="text-lg font-semibold mb-4">
                     Finalisation de l'inscription
                   </h3>
-
-                  <div className="rounded-lg border p-4 bg-gray-50">
-                    <div className="flex items-center justify-between mb-2">
-                      <div className="text-sm text-gray-600">
-                        Total à régler
-                      </div>
-                      <div className="text-lg font-semibold">
-                        {totalPayable > 0
-                          ? `${totalPayable.toLocaleString()} FCFA`
-                          : "—"}
-                      </div>
-                    </div>
-                    <div className="text-xs text-gray-500">
-                      Si le montant est supérieur à 0, votre inscription est
-                      enregistrée et le paiement sera finalisé plus tard.
-                    </div>
-                  </div>
-
                   <FormField
                     control={form.control}
                     name="motivation"
@@ -577,7 +551,7 @@ const FormationRegistrationForm: React.FC<FormationRegistrationFormProps> = ({
                         <FormLabel>Motivation et objectifs *</FormLabel>
                         <FormControl>
                           <Textarea
-                            placeholder="Expliquez pourquoi cette formation vous intéresse et vos objectifs…"
+                            placeholder="Expliquez pourquoi cette formation vous intéresse et quels sont vos objectifs..."
                             className="min-h-[100px]"
                             {...field}
                           />
@@ -586,7 +560,6 @@ const FormationRegistrationForm: React.FC<FormationRegistrationFormProps> = ({
                       </FormItem>
                     )}
                   />
-
                   <FormField
                     control={form.control}
                     name="specificNeeds"
@@ -595,7 +568,7 @@ const FormationRegistrationForm: React.FC<FormationRegistrationFormProps> = ({
                         <FormLabel>Besoins spécifiques (optionnel)</FormLabel>
                         <FormControl>
                           <Textarea
-                            placeholder="Avez-vous des besoins particuliers, des questions spécifiques ?"
+                            placeholder="Besoins particuliers, questions spécifiques à aborder"
                             {...field}
                           />
                         </FormControl>
@@ -609,18 +582,14 @@ const FormationRegistrationForm: React.FC<FormationRegistrationFormProps> = ({
               <Separator />
               <div className="flex justify-between">
                 {currentStep > 1 && (
-                  <Button
-                    type="button"
-                    variant="outline"
-                    onClick={() => setCurrentStep(currentStep - 1)}
-                  >
+                  <Button type="button" variant="outline" onClick={goPrev}>
                     Précédent
                   </Button>
                 )}
                 {currentStep < 3 ? (
                   <Button
                     type="button"
-                    onClick={() => setCurrentStep(currentStep + 1)}
+                    onClick={goNext}
                     className="ml-auto bg-red-900 hover:bg-red-800"
                   >
                     Suivant
@@ -628,6 +597,7 @@ const FormationRegistrationForm: React.FC<FormationRegistrationFormProps> = ({
                 ) : (
                   <Button
                     type="submit"
+                    disabled={submitting}
                     className="ml-auto bg-red-900 hover:bg-red-800"
                   >
                     <CreditCard className="mr-2 h-4 w-4" />

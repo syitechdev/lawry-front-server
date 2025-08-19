@@ -360,6 +360,7 @@ const AdminFormations = () => {
                         <Label>Titre</Label>
                         <Input
                           value={createForm.title}
+                          placeholder="Nom de la formation"
                           onChange={(e) =>
                             setCreateForm((s) => ({
                               ...s,
@@ -372,6 +373,7 @@ const AdminFormations = () => {
                         <Label>Formateur</Label>
                         <Input
                           value={createForm.trainer}
+                          placeholder="M. Dupont"
                           onChange={(e) =>
                             setCreateForm((s) => ({
                               ...s,
@@ -503,6 +505,7 @@ const AdminFormations = () => {
                         <Label>Durée</Label>
                         <Input
                           value={createForm.duration}
+                          placeholder="2 jours"
                           onChange={(e) =>
                             setCreateForm((s) => ({
                               ...s,

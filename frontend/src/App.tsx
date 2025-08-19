@@ -74,6 +74,8 @@ import AdminParametres from "./pages/admin/AdminParametres";
 import AdminPlans from "./pages/admin/AdminPlans";
 import AdminDemandeDetail from "./pages/admin/AdminDemandeDetail";
 import AdminEnterpriseTypes from "./pages/admin/AdminEnterpriseTypes";
+import AdminFormationRegistrations from "@/pages/admin/AdminFormationRegistrations";
+import AdminRegistrationDetail from "@/pages/admin/AdminRegistrationDetail";
 
 // Client
 import ClientCommandes from "./pages/client/ClientCommandes";
@@ -296,12 +298,20 @@ const App = () => (
                 <Route path="/admin/categories" element={<AdminCategories />} />
                 <Route path="/admin/boutique" element={<AdminBoutique />} />
                 <Route path="/admin/formations" element={<AdminFormations />} />
+                <Route
+                  path="/admin/inscriptions"
+                  element={<AdminFormationRegistrations />}
+                />
                 <Route path="/admin/plans" element={<AdminPlans />} />
                 <Route
                   path="/admin/types-entreprise"
                   element={<AdminEnterpriseTypes />}
                 />
                 <Route path="/admin/parametres" element={<AdminParametres />} />
+                <Route
+                  path="/admin/inscription/:id"
+                  element={<AdminRegistrationDetail />}
+                />
 
                 <Route
                   path="/admin/demande/:id"

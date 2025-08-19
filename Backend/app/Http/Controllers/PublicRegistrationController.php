@@ -4,85 +4,123 @@ namespace App\Http\Controllers;
 
 use App\Models\Formation;
 use App\Models\Registration;
-use App\Models\RegistrationItem;
 use App\Models\User;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Str;
+use Illuminate\Validation\ValidationException;
 
-class PublicRegistrationController extends Controller
+class RegistrationController extends Controller
 {
     public function store(Request $request)
     {
-        $data = $request->validate([
-            'user_id' => ['nullable', 'integer', 'exists:users,id'],
-            'guest' => ['nullable', 'array'],
-            'guest.first_name' => ['nullable', 'string'],
-            'guest.last_name' => ['nullable', 'string'],
-            'guest.email' => ['nullable', 'email'],
-            'guest.phone' => ['nullable', 'string'],
-            'guest.profession' => ['nullable', 'string'],
-            'guest.company' => ['nullable', 'string'],
-            'formations' => ['required', 'array', 'min:1'],
-            'formations.*' => ['integer', 'exists:formations,id'],
-            'preferences' => ['required', 'array'],
-            'preferences.session_format' => ['required', 'in:presentiel,distanciel,mixte'],
-            'preferences.preferred_dates' => ['nullable', 'string'],
-            'preferences.motivation' => ['required', 'string', 'min:10'],
-            'preferences.specific_needs' => ['nullable', 'string'],
-            'total_price' => ['nullable', 'integer'],
-            'payment_required' => ['nullable', 'boolean'],
-        ]);
-
-        $userId = auth()->id() ?: ($data['user_id'] ?? null);
-
-        if (!$userId && !empty($data['guest']['email'])) {
-            $user = User::where('email', $data['guest']['email'])->first();
-            if (!$user) {
-                $user = User::create([
-                    'name' => trim(($data['guest']['first_name'] ?? '') . ' ' . ($data['guest']['last_name'] ?? '')) ?: ($data['guest']['email'] ?? 'Utilisateur'),
-                    'email' => $data['guest']['email'],
-                    'password' => Hash::make(Str::random(32)),
-                ]);
-            }
-            $userId = $user->id;
+        $formationId = $request->input('formation_id') ?? $request->input('formationId');
+        if (!$formationId) {
+            throw ValidationException::withMessages(['formation_id' => 'formation_id est requis']);
         }
 
-        return DB::transaction(function () use ($data, $userId) {
-            $formations = Formation::whereIn('id', $data['formations'])->get();
-            $computedTotal = 0;
-            foreach ($formations as $f) {
-                if ($f->price_type === 'fixed' && $f->price_cfa && $f->price_cfa > 0) {
-                    $computedTotal += (int) $f->price_cfa;
-                }
-            }
-            $total = $data['total_price'] ?? $computedTotal;
-            $paymentRequired = $data['payment_required'] ?? ($total > 0);
+        $formation = Formation::query()->where('active', true)->findOrFail($formationId);
 
-            $registration = Registration::create([
-                'user_id' => $userId,
-                'guest' => $userId ? null : ($data['guest'] ?? null),
-                'preferences' => $data['preferences'] ?? null,
-                'total_price' => $total,
-                'payment_required' => (bool) $paymentRequired,
-                'status' => $paymentRequired ? 'payment_required' : 'confirmed',
+        $user = $request->user();
+
+        if ($user) {
+            if (method_exists($user, 'hasRole') && !$user->hasRole('Client')) {
+                return response()->json(['message' => 'Seuls les utilisateurs Client peuvent s’inscrire.'], 403);
+            }
+        } else {
+            $data = $request->validate([
+                'email' => ['required', 'email'],
+                'first_name' => ['required', 'string'],
+                'last_name' => ['required', 'string'],
+                'phone' => ['nullable', 'string'],
             ]);
 
-            foreach ($formations as $f) {
-                RegistrationItem::create([
-                    'registration_id' => $registration->id,
-                    'formation_id' => $f->id,
-                    'price_cfa' => ($f->price_type === 'fixed' && $f->price_cfa) ? (int) $f->price_cfa : null,
-                ]);
+            $user = User::query()->where('email', $data['email'])->first();
+            if (!$user) {
+                $user = new User();
+                $user->name = trim($data['first_name'] . ' ' . $data['last_name']);
+                $user->email = $data['email'];
+                $user->password = Hash::make(Str::random(16));
+                if (in_array('phone', $user->getFillable()) || property_exists($user, 'phone')) {
+                    $user->phone = $data['phone'] ?? null;
+                }
+                $user->save();
+                if (method_exists($user, 'assignRole')) {
+                    try {
+                        $user->assignRole('Client');
+                    } catch (\Throwable $e) {
+                    }
+                }
             }
+        }
 
-            return response()->json([
-                'id' => $registration->id,
-                'status' => $registration->status,
-                'total_price' => $registration->total_price,
-                'payment_required' => $registration->payment_required,
-            ], 201);
-        });
+        $exists = Registration::query()
+            ->where('formation_id', $formation->id)
+            ->where('user_id', $user->id)
+            ->exists();
+
+        if ($exists) {
+            return response()->json(['message' => 'Déjà inscrit à cette formation'], 422);
+        }
+
+        $taken = Registration::query()
+            ->where('formation_id', $formation->id)
+            ->count();
+
+        if ($formation->max_participants !== null && $formation->max_participants > 0 && $taken >= $formation->max_participants) {
+            return response()->json(['message' => 'Nombre de places atteint'], 422);
+        }
+
+        $amount = null;
+        if (($formation->price_type ?? null) === 'fixed' && !is_null($formation->price_cfa) && $formation->price_cfa > 0) {
+            $amount = (int) $formation->price_cfa;
+        }
+
+        $registration = Registration::create([
+            'formation_id' => $formation->id,
+            'user_id' => $user->id,
+            'status' => 'confirmed',
+            'amount_cfa' => $amount,
+            'price_type' => $formation->price_type,
+        ]);
+
+        return response()->json([
+            'id' => $registration->id,
+            'status' => $registration->status,
+            'amount_cfa' => $registration->amount_cfa,
+            'formation' => [
+                'id' => $formation->id,
+                'title' => $formation->title,
+                'date' => $formation->date,
+                'type' => $formation->type,
+                'price_type' => $formation->price_type,
+                'price_cfa' => $formation->price_cfa,
+            ],
+        ], 201);
+    }
+
+    public function mine(Request $request)
+    {
+        $user = $request->user();
+        $items = Registration::query()
+            ->where('user_id', $user->id)
+            ->with('formation')
+            ->orderByDesc('created_at')
+            ->get()
+            ->map(function ($r) {
+                return [
+                    'id' => $r->id,
+                    'status' => $r->status,
+                    'amount_cfa' => $r->amount_cfa,
+                    'formation' => [
+                        'id' => $r->formation->id,
+                        'title' => $r->formation->title,
+                        'date' => $r->formation->date,
+                        'type' => $r->formation->type,
+                    ],
+                ];
+            });
+
+        return response()->json(['data' => $items]);
     }
 }
