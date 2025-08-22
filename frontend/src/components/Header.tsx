@@ -118,10 +118,15 @@ const Header = () => {
         <div className="flex justify-between items-center h-14 sm:h-16">
           {/* Logo */}
           <Link to="/" className="flex items-center space-x-2">
-            <Scale className="h-6 w-6 sm:h-8 sm:w-8 text-red-900" />
+            {/* <Scale className="h-6 w-6 sm:h-8 sm:w-8 text-red-900" />
             <span className="text-base sm:text-xl font-bold text-gray-900 truncate">
               Lawry Conseils CI
-            </span>
+            </span> */}
+            <img
+              src="/lovable-uploads/58eeab48-482f-4e0a-ba88-27030b1aab79.png"
+              alt="LAWRY Logo"
+              className="h-11 w-auto"
+            />
           </Link>
 
           {/* Desktop Navigation */}

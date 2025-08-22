@@ -76,6 +76,9 @@ import AdminDemandeDetail from "./pages/admin/AdminDemandeDetail";
 import AdminEnterpriseTypes from "./pages/admin/AdminEnterpriseTypes";
 import AdminFormationRegistrations from "@/pages/admin/AdminFormationRegistrations";
 import AdminRegistrationDetail from "@/pages/admin/AdminRegistrationDetail";
+import DemandesList from "@/pages/admin/DemandesList";
+import AdminRedigerContrat from "./pages/admin/types/AdminRedigerContrat";
+import AdminSefaireConseiler from "@/pages/admin/types/AdminSefaireConseiler";
 
 // Client
 import ClientCommandes from "./pages/client/ClientCommandes";
@@ -292,12 +295,26 @@ const App = () => (
               <Route element={<RequireAuth roles={["Admin"]} />}>
                 <Route path="/admin" element={<AdminDashboard />} />
                 <Route path="/admin/demandes" element={<AdminDemandes />} />
+                <Route
+                  path="/admin/demandes/types/:slug"
+                  element={<DemandesList />}
+                />
+
                 <Route path="/admin/clients" element={<AdminClients />} />
                 <Route path="/admin/services" element={<AdminServices />} />
                 <Route path="/admin/blog" element={<AdminBlog />} />
                 <Route path="/admin/categories" element={<AdminCategories />} />
                 <Route path="/admin/boutique" element={<AdminBoutique />} />
                 <Route path="/admin/formations" element={<AdminFormations />} />
+                <Route
+                  path="/admin/types/rediger-contrat"
+                  element={<AdminRedigerContrat />}
+                />
+                <Route
+                  path="/admin/types/se-faire-conseiller"
+                  element={<AdminSefaireConseiler />}
+                />
+
                 <Route
                   path="/admin/inscriptions"
                   element={<AdminFormationRegistrations />}

@@ -15,10 +15,17 @@ use ApiPlatform\Metadata\Patch;
 use ApiPlatform\Metadata\Delete;
 
 #[ApiResource(
-    operations: [new GetCollection(), new Get(), new Post(), new Patch(), new Delete()],
     paginationItemsPerPage: 20,
     rules: \App\Http\Requests\CategoryUpsertRequest::class,
+    operations: [
+        new GetCollection(),
+        new Get(),
+        new Post(middleware: ['auth:sanctum', 'permission:categories.create']),
+        new Patch(middleware: ['auth:sanctum', 'permission:categories.update']),
+        new Delete(middleware: ['auth:sanctum', 'permission:categories.delete']),
+    ],
 )]
+
 class Category extends Model
 {
     use HasFactory;

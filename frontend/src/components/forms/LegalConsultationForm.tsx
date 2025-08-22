@@ -1,137 +1,402 @@
-
-import React, { useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import * as z from "zod";
+
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogFooter,
+} from "@/components/ui/dialog";
+
+import { useNavigate } from "react-router-dom";
+
+import {
+  Form,
+  FormControl,
+  FormField,
+  FormItem,
+  FormLabel,
+  FormMessage,
+} from "@/components/ui/form";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { Checkbox } from "@/components/ui/checkbox";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Label } from "@/components/ui/label";
-import { Separator } from "@/components/ui/separator";
-import { 
-  User, Building, FileText, Scale, Clock, Upload, 
-  ChevronRight, ChevronLeft, CheckCircle, AlertCircle 
+
+import {
+  User,
+  FileText,
+  Scale,
+  Upload,
+  ChevronRight,
+  ChevronLeft,
+  CheckCircle,
+  AlertCircle,
+  BadgePercent,
+  Copy,
+  ExternalLink,
+  Loader2, // loader spinner
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import PaymentForm from "./PaymentForm";
+import { http } from "@/lib/http";
 
-const consultationSchema = z.object({
-  // Informations client
-  firstName: z.string().min(1, "Prénom requis"),
-  lastName: z.string().min(1, "Nom requis"),
-  profession: z.string().min(1, "Profession requise"),
-  nationality: z.string().min(1, "Nationalité requise"),
-  clientType: z.enum(["particulier", "entreprise", "association", "autre"]),
-  companyName: z.string().optional(),
-  otherClientType: z.string().optional(),
-  phone: z.string().min(1, "Téléphone requis"),
-  email: z.string().email("Email invalide"),
-  
-  // Objet de la demande
-  legalDomain: z.enum([
-    "droit_affaires", "droit_fiscal", "droit_societes", "droit_travail",
-    "droit_immobilier", "droit_famille", "droit_penal", "droit_contrats",
-    "droit_nouvelles_technologies", "autre"
-  ]),
-  otherLegalDomain: z.string().optional(),
-  counselType: z.enum([
-    "redaction_verification", "analyse_recommandations", "gestion_litiges",
-    "assistance_precontentieuse", "avis_juridique", "autre"
-  ]),
-  otherCounselType: z.string().optional(),
-  
-  // Description détaillée
-  factDescription: z.string().min(10, "Description des faits requise (minimum 10 caractères)"),
-  legalQuestions: z.string().min(5, "Questions juridiques requises"),
-  involvedParties: z.string().optional(),
-  
-  // Documents
-  hasDocuments: z.boolean(),
-  documentTypes: z.array(z.string()).optional(),
-  otherDocuments: z.string().optional(),
-  
-  // Délai
-  responseDeadline: z.enum(["48h", "5_jours", "a_convenir"]),
-  
-  // Consentements
-  dataConsent: z.boolean().refine(val => val === true, "Consentement requis"),
-  digitalConsent: z.boolean(),
-});
+export type ConsultationPreset = {
+  key: string; // variant_key
+  label: string; // libellé
+  price?: number | null; // montant ou null (sur devis)
+  currency?: string; // XOF...
+  counselType?:
+    | "redaction_verification"
+    | "analyse_recommandations"
+    | "gestion_litiges"
+    | "assistance_precontentieuse"
+    | "avis_juridique"
+    | "autre";
+};
 
-type ConsultationFormData = z.infer<typeof consultationSchema>;
+const schema = z
+  .object({
+    // Informations client
+    firstName: z.string().min(1, "Prénom requis"),
+    lastName: z.string().min(1, "Nom requis"),
+    profession: z.string().min(1, "Profession requise"),
+    nationality: z.string().min(1, "Nationalité requise"),
+    clientType: z.enum(["particulier", "entreprise", "association", "autre"]),
+    companyName: z.string().optional(),
+    otherClientType: z.string().optional(),
+    phone: z.string().min(1, "Téléphone requis"),
+    email: z.string().email("Email invalide"),
 
-const LegalConsultationForm = () => {
-  const [currentStep, setCurrentStep] = useState(1);
-  const [showPayment, setShowPayment] = useState(false);
-  const [consultationData, setConsultationData] = useState<ConsultationFormData | null>(null);
-  const [uploadedFiles, setUploadedFiles] = useState<File[]>([]);
+    // Objet
+    legalDomain: z.enum([
+      "droit_affaires",
+      "droit_fiscal",
+      "droit_societes",
+      "droit_travail",
+      "droit_immobilier",
+      "droit_famille",
+      "droit_penal",
+      "droit_contrats",
+      "droit_nouvelles_technologies",
+      "autre",
+    ]),
+    otherLegalDomain: z.string().optional(),
+    counselType: z.enum([
+      "redaction_verification",
+      "analyse_recommandations",
+      "gestion_litiges",
+      "assistance_precontentieuse",
+      "avis_juridique",
+      "autre",
+    ]),
+    otherCounselType: z.string().optional(),
+
+    // Description
+    factDescription: z
+      .string()
+      .min(10, "Description des faits requise (min 10 caractères)"),
+    legalQuestions: z.string().min(5, "Questions juridiques requises"),
+    involvedParties: z.string().optional(),
+
+    // Docs
+    hasDocuments: z.boolean(),
+    documentTypes: z.array(z.string()).optional(),
+    otherDocuments: z.string().optional(),
+
+    // Consentements
+    dataConsent: z.boolean().refine((v) => v === true, "Consentement requis"),
+    digitalConsent: z.boolean(),
+  })
+  .superRefine((val, ctx) => {
+    if (val.clientType === "entreprise" && !val.companyName) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["companyName"],
+        message: "Le nom de l'entreprise est requis",
+      });
+    }
+    if (val.clientType === "autre" && !val.otherClientType) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["otherClientType"],
+        message: "Veuillez préciser le type de client",
+      });
+    }
+    if (val.legalDomain === "autre" && !val.otherLegalDomain) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["otherLegalDomain"],
+        message: "Veuillez préciser le domaine",
+      });
+    }
+    if (val.counselType === "autre" && !val.otherCounselType) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["otherCounselType"],
+        message: "Veuillez préciser la nature du conseil",
+      });
+    }
+  });
+
+type FormValues = z.infer<typeof schema>;
+
+type Props = { preset: ConsultationPreset };
+
+const LegalConsultationForm: React.FC<Props> = ({ preset }) => {
   const { toast } = useToast();
 
-  const form = useForm<ConsultationFormData>({
-    resolver: zodResolver(consultationSchema),
+  const [currentStep, setCurrentStep] = useState(1);
+  const [showPayment, setShowPayment] = useState(false);
+  const [uploadedFiles, setUploadedFiles] = useState<File[]>([]);
+  const [createdRef, setCreatedRef] = useState<string | null>(null);
+
+  const navigate = useNavigate();
+
+  const [successOpen, setSuccessOpen] = useState(false);
+  const [successRef, setSuccessRef] = useState<string | null>(null);
+
+  // NEW: loader & redirection cible quand le modal se ferme
+  const [submitting, setSubmitting] = useState(false);
+  const [closeRedirect, setCloseRedirect] = useState<"home" | "orders" | null>(
+    null
+  );
+
+  const form = useForm<FormValues>({
+    resolver: zodResolver(schema),
     defaultValues: {
       clientType: "particulier",
       legalDomain: "droit_affaires",
-      counselType: "avis_juridique",
-      responseDeadline: "5_jours",
+      counselType: preset.counselType ?? "avis_juridique",
       hasDocuments: false,
       dataConsent: false,
       digitalConsent: false,
       documentTypes: [],
     },
+    mode: "onChange",
   });
+
+  const isLoggedIn = !!localStorage.getItem("auth_token");
+  const userEmailForReset =
+    form.getValues("email") ||
+    (() => {
+      try {
+        const u = JSON.parse(localStorage.getItem("current_user") || "{}");
+        return u?.email || "";
+      } catch {
+        return "";
+      }
+    })();
+
+  useEffect(() => {
+    if (preset.counselType) form.setValue("counselType", preset.counselType);
+  }, [preset.counselType]);
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const raw = localStorage.getItem("current_user");
+        if (raw) {
+          const me = JSON.parse(raw);
+          const name: string = me.name ?? "";
+          const [fn, ...rest] = name.split(" ");
+          const ln = rest.join(" ");
+          if (fn) form.setValue("firstName", fn);
+          if (ln) form.setValue("lastName", ln);
+          if (me.email) form.setValue("email", me.email);
+          if (me.phone) form.setValue("phone", me.phone);
+          if (me.profession) form.setValue("profession", me.profession);
+          if (me.nationality) form.setValue("nationality", me.nationality);
+        }
+      } catch {
+        // Ignore
+      }
+    })();
+  }, []);
 
   const steps = [
     {
       id: 1,
       title: "Informations Client",
       icon: User,
-      description: "Vos informations personnelles"
+      description: "Vos informations personnelles",
     },
     {
       id: 2,
       title: "Objet de la Demande",
       icon: Scale,
-      description: "Type de conseil juridique"
+      description: "Type de conseil juridique",
     },
     {
       id: 3,
       title: "Description Détaillée",
       icon: FileText,
-      description: "Situation et questions"
+      description: "Situation et questions",
     },
     {
       id: 4,
-      title: "Documents & Délai",
+      title: "Documents",
       icon: Upload,
-      description: "Pièces jointes et urgence"
+      description: "Pièces jointes (facultatif)",
     },
     {
       id: 5,
       title: "Consentements",
       icon: CheckCircle,
-      description: "Acceptation des conditions"
-    }
+      description: "Acceptation des conditions",
+    },
   ];
 
-  const consultationPricing = {
-    "48h": { name: "Consultation Urgente (48h)", price: 75000 },
-    "5_jours": { name: "Consultation Standard (5 jours)", price: 50000 },
-    "a_convenir": { name: "Consultation Complexe (à convenir)", price: 60000 }
+  const stepFields: Record<number, (keyof FormValues)[]> = {
+    1: [
+      "firstName",
+      "lastName",
+      "profession",
+      "nationality",
+      "clientType",
+      "companyName",
+      "otherClientType",
+      "phone",
+      "email",
+    ],
+    2: ["legalDomain", "otherLegalDomain", "counselType", "otherCounselType"],
+    3: ["factDescription", "legalQuestions", "involvedParties"],
+    4: ["hasDocuments", "documentTypes", "otherDocuments"],
+    5: ["dataConsent", "digitalConsent"],
+  };
+
+  const nextStep = async () => {
+    const ok = await form.trigger(stepFields[currentStep], {
+      shouldFocus: true,
+    });
+    if (!ok) {
+      toast({
+        variant: "destructive",
+        title: "Champs manquants",
+        description: "Corrigez les erreurs avant de continuer.",
+      });
+      return;
+    }
+    setCurrentStep((s) => Math.min(s + 1, steps.length));
+  };
+  const prevStep = () => setCurrentStep((s) => Math.max(s - 1, 1));
+
+  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(e.target.files || []);
+    setUploadedFiles((prev) => [...prev, ...files]);
+    toast({
+      title: "Fichiers ajoutés",
+      description: `${files.length} fichier(s)`,
+    });
+  };
+  const removeFile = (i: number) =>
+    setUploadedFiles((prev) => prev.filter((_, idx) => idx !== i));
+
+  const onSubmit = async (data: FormValues) => {
+    try {
+      setSubmitting(true); // start loader
+
+      const fd = new window.FormData();
+      fd.append("type", "se-faire-conseiller");
+      if (preset?.key) fd.append("variant_key", preset.key);
+      fd.append("urgent", "false");
+
+      fd.append("data[firstName]", data.firstName);
+      fd.append("data[lastName]", data.lastName);
+      fd.append("data[profession]", data.profession ?? "");
+      fd.append("data[nationality]", data.nationality ?? "");
+      fd.append("data[clientType]", data.clientType);
+      if (data.companyName) fd.append("data[companyName]", data.companyName);
+      if (data.otherClientType)
+        fd.append("data[otherClientType]", data.otherClientType);
+      fd.append("data[phone]", data.phone);
+      fd.append("data[email]", data.email);
+
+      fd.append("data[legalDomain]", data.legalDomain);
+      fd.append("data[counselType]", data.counselType);
+      fd.append("data[factDescription]", data.factDescription);
+      fd.append("data[legalQuestions]", data.legalQuestions);
+      if (data.involvedParties)
+        fd.append("data[involvedParties]", data.involvedParties);
+
+      fd.append("data[hasDocuments]", String(!!data.hasDocuments));
+      (data.documentTypes ?? []).forEach((t, i) =>
+        fd.append(`data[documentTypes][${i}]`, t)
+      );
+      if (data.otherDocuments)
+        fd.append("data[otherDocuments]", data.otherDocuments);
+
+      // trace de la formule choisie
+      if (preset?.label)
+        fd.append("data[selected_preset][label]", preset.label);
+      if (typeof preset?.price === "number")
+        fd.append("data[selected_preset][price]", String(preset.price ?? 0));
+
+      // fichiers
+      if (uploadedFiles.length) {
+        uploadedFiles.forEach((file) =>
+          fd.append("files[attachments][]", file)
+        );
+      }
+
+      // POST
+      const { data: res } = await http.post("/demandes", fd, {
+        headers: { "Content-Type": "multipart/form-data" },
+      });
+
+      // ref robuste
+      const ref =
+        res?.ref ||
+        res?.data?.ref ||
+        res?.demande?.ref ||
+        res?.demande?.data?.ref ||
+        null;
+
+      setCreatedRef(ref);
+      setSuccessRef(ref);
+      setSuccessOpen(true);
+
+      // MAJ localStorage si backend renvoie updated_user
+      const updated = res?.updated_user;
+      if (updated) {
+        try {
+          const prev = localStorage.getItem("current_user");
+          const prevObj = prev ? JSON.parse(prev) : {};
+          const merged = { ...prevObj, ...updated };
+          localStorage.setItem("current_user", JSON.stringify(merged));
+        } catch {}
+      }
+    } catch (e: any) {
+      toast({
+        variant: "destructive",
+        title: "Envoi impossible",
+        description:
+          e?.response?.data?.message || "Veuillez vérifier le formulaire.",
+      });
+    } finally {
+      setSubmitting(false); // stop loader
+    }
   };
 
   const clientTypeOptions = [
     { value: "particulier", label: "Particulier" },
     { value: "entreprise", label: "Entreprise / Société" },
     { value: "association", label: "Association" },
-    { value: "autre", label: "Autre" }
+    { value: "autre", label: "Autre" },
   ];
-
   const legalDomainOptions = [
     { value: "droit_affaires", label: "Droit des affaires" },
     { value: "droit_fiscal", label: "Droit fiscal" },
@@ -141,114 +406,113 @@ const LegalConsultationForm = () => {
     { value: "droit_famille", label: "Droit de la famille" },
     { value: "droit_penal", label: "Droit pénal" },
     { value: "droit_contrats", label: "Droit des contrats" },
-    { value: "droit_nouvelles_technologies", label: "Droit des nouvelles technologies" },
-    { value: "autre", label: "Autre" }
+    {
+      value: "droit_nouvelles_technologies",
+      label: "Droit des nouvelles technologies",
+    },
+    { value: "autre", label: "Autre" },
   ];
-
   const counselTypeOptions = [
-    { value: "redaction_verification", label: "Rédaction / Vérification de documents juridiques" },
-    { value: "analyse_recommandations", label: "Analyse de situation et recommandations" },
+    {
+      value: "redaction_verification",
+      label: "Rédaction / Vérification de documents juridiques",
+    },
+    {
+      value: "analyse_recommandations",
+      label: "Analyse de situation et recommandations",
+    },
     { value: "gestion_litiges", label: "Gestion de litiges / Contentieux" },
-    { value: "assistance_precontentieuse", label: "Assistance précontentieuse" },
-    { value: "avis_juridique", label: "Avis juridique sur une question spécifique" },
-    { value: "autre", label: "Autre" }
+    {
+      value: "assistance_precontentieuse",
+      label: "Assistance précontentieuse",
+    },
+    {
+      value: "avis_juridique",
+      label: "Avis juridique sur une question spécifique",
+    },
+    { value: "autre", label: "Autre" },
   ];
-
   const documentTypeOptions = [
     "Contrats",
     "Correspondances (emails, lettres)",
     "Jugements ou décisions administratives",
     "Relevés financiers",
-    "Autres documents pertinents"
+    "Autres documents pertinents",
   ];
-
-  const handleFileUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
-    const files = Array.from(event.target.files || []);
-    setUploadedFiles(prev => [...prev, ...files]);
-    toast({
-      title: "Fichiers ajoutés",
-      description: `${files.length} fichier(s) ajouté(s) avec succès`,
-    });
-  };
-
-  const removeFile = (index: number) => {
-    setUploadedFiles(prev => prev.filter((_, i) => i !== index));
-  };
-
-  const nextStep = () => {
-    setCurrentStep(prev => Math.min(prev + 1, steps.length));
-  };
-
-  const prevStep = () => {
-    setCurrentStep(prev => Math.max(prev - 1, 1));
-  };
-
-  const onSubmit = (data: ConsultationFormData) => {
-    console.log("Données de consultation:", data);
-    console.log("Fichiers joints:", uploadedFiles);
-    
-    setConsultationData(data);
-    setShowPayment(true);
-    
-    toast({
-      title: "Formulaire validé !",
-      description: "Procédez maintenant au paiement pour finaliser votre demande.",
-    });
-  };
-
-  const handlePaymentSuccess = (paymentData: any) => {
-    console.log("Paiement réussi pour la consultation:", paymentData);
-    
-    toast({
-      title: "Demande de consultation confirmée !",
-      description: "Votre demande a été enregistrée. Vous recevrez une réponse dans les délais convenus.",
-    });
-    
-    // Reset form
-    form.reset();
-    setCurrentStep(1);
-    setShowPayment(false);
-    setConsultationData(null);
-    setUploadedFiles([]);
-  };
-
-  if (showPayment && consultationData) {
-    const selectedPricing = consultationPricing[consultationData.responseDeadline];
-    
-    return (
-      <div className="max-w-4xl mx-auto p-6">
-        <PaymentForm
-          contractType={{
-            id: consultationData.responseDeadline,
-            name: selectedPricing.name,
-            price: selectedPricing.price,
-            description: `Consultation juridique en ${consultationData.legalDomain.replace('_', ' ')}`
-          }}
-          onPaymentSuccess={handlePaymentSuccess}
-          contractData={consultationData}
-        />
-      </div>
-    );
-  }
 
   const selectedClientType = form.watch("clientType");
   const selectedLegalDomain = form.watch("legalDomain");
   const selectedCounselType = form.watch("counselType");
   const hasDocuments = form.watch("hasDocuments");
   const selectedDocumentTypes = form.watch("documentTypes") || [];
-  const selectedDeadline = form.watch("responseDeadline");
+
+  const priceDisplay = useMemo(() => {
+    if (!preset?.price) return "Sur devis";
+    const n = Number(preset.price);
+    if (!Number.isFinite(n)) return "Sur devis";
+    return `${n.toLocaleString("fr-FR")} ${preset.currency ?? "XOF"}`;
+  }, [preset]);
+
+  if (showPayment) {
+    return (
+      <div className="max-w-4xl mx-auto p-6">
+        <PaymentForm
+          contractType={{
+            id: preset.key,
+            name: preset.label,
+            price: preset.price ?? 0,
+            description: "Consultation juridique",
+          }}
+          onPaymentSuccess={() => {
+            toast({
+              title: "Paiement confirmé",
+              description: "Votre demande sera traitée.",
+            });
+            form.reset();
+            setUploadedFiles([]);
+            setCurrentStep(1);
+            setShowPayment(false);
+          }}
+          contractData={{ demande_ref: createdRef }}
+        />
+      </div>
+    );
+  }
 
   return (
     <div className="max-w-4xl mx-auto p-6 space-y-8">
-      {/* Progress indicator */}
-      <div className="flex items-center justify-between mb-8">
+      {/* Bandeau formule */}
+      <div className="rounded-2xl border bg-white p-4 flex items-center justify-between shadow-sm">
+        <div className="flex items-center gap-3">
+          <div className="p-2 rounded-lg bg-red-50">
+            <BadgePercent className="h-5 w-5 text-red-800" />
+          </div>
+          <div>
+            <div className="text-sm text-gray-500">Formule choisie</div>
+            <div className="text-lg font-semibold text-gray-900">
+              {preset.label}
+            </div>
+          </div>
+        </div>
+        <div className="text-right">
+          <div className="text-sm text-gray-500">Montant</div>
+          <div className="text-xl font-extrabold text-red-900">
+            {priceDisplay}
+          </div>
+        </div>
+      </div>
+
+      {/* Progress */}
+      <div className="flex items-center justify-between mb-2">
         {steps.map((step, index) => (
           <div key={step.id} className="flex items-center">
-            <div className={`flex items-center justify-center w-10 h-10 rounded-full border-2 ${
-              currentStep >= step.id 
-                ? 'bg-red-900 border-red-900 text-white' 
-                : 'border-gray-300 text-gray-500'
-            }`}>
+            <div
+              className={`flex items-center justify-center w-10 h-10 rounded-full border-2 ${
+                currentStep >= step.id
+                  ? "bg-red-900 border-red-900 text-white"
+                  : "border-gray-300 text-gray-500"
+              }`}
+            >
               {currentStep > step.id ? (
                 <CheckCircle className="h-5 w-5" />
               ) : (
@@ -256,28 +520,28 @@ const LegalConsultationForm = () => {
               )}
             </div>
             {index < steps.length - 1 && (
-              <div className={`w-12 h-0.5 mx-2 ${
-                currentStep > step.id ? 'bg-red-900' : 'bg-gray-300'
-              }`} />
+              <div
+                className={`w-12 h-0.5 mx-2 ${
+                  currentStep > step.id ? "bg-red-900" : "bg-gray-300"
+                }`}
+              />
             )}
           </div>
         ))}
       </div>
 
-      {/* Current step info */}
-      <div className="text-center mb-8">
-        <h2 className="text-2xl font-bold text-gray-900 mb-2">
+      {/* Titre étape */}
+      <div className="text-center mb-6">
+        <h2 className="text-2xl font-bold text-gray-900 mb-1">
           {steps[currentStep - 1].title}
         </h2>
-        <p className="text-gray-600">
-          {steps[currentStep - 1].description}
-        </p>
+        <p className="text-gray-600">{steps[currentStep - 1].description}</p>
       </div>
 
+      {/* Form */}
       <Form {...form}>
         <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
-          
-          {/* Step 1: Informations Client */}
+          {/* Étape 1 */}
           {currentStep === 1 && (
             <Card>
               <CardHeader>
@@ -352,11 +616,17 @@ const LegalConsultationForm = () => {
                     <FormItem>
                       <FormLabel>Type de client *</FormLabel>
                       <FormControl>
-                        <RadioGroup onValueChange={field.onChange} value={field.value}>
-                          {clientTypeOptions.map((option) => (
-                            <div key={option.value} className="flex items-center space-x-2">
-                              <RadioGroupItem value={option.value} id={option.value} />
-                              <Label htmlFor={option.value}>{option.label}</Label>
+                        <RadioGroup
+                          onValueChange={field.onChange}
+                          value={field.value}
+                        >
+                          {clientTypeOptions.map((o) => (
+                            <div
+                              key={o.value}
+                              className="flex items-center space-x-2"
+                            >
+                              <RadioGroupItem value={o.value} id={o.value} />
+                              <Label htmlFor={o.value}>{o.label}</Label>
                             </div>
                           ))}
                         </RadioGroup>
@@ -372,7 +642,7 @@ const LegalConsultationForm = () => {
                     name="companyName"
                     render={({ field }) => (
                       <FormItem>
-                        <FormLabel>Nom de l'entreprise</FormLabel>
+                        <FormLabel>Nom de l'entreprise *</FormLabel>
                         <FormControl>
                           <Input {...field} />
                         </FormControl>
@@ -381,14 +651,13 @@ const LegalConsultationForm = () => {
                     )}
                   />
                 )}
-
                 {selectedClientType === "autre" && (
                   <FormField
                     control={form.control}
                     name="otherClientType"
                     render={({ field }) => (
                       <FormItem>
-                        <FormLabel>Précisez le type de client</FormLabel>
+                        <FormLabel>Précisez le type de client *</FormLabel>
                         <FormControl>
                           <Input {...field} />
                         </FormControl>
@@ -430,7 +699,7 @@ const LegalConsultationForm = () => {
             </Card>
           )}
 
-          {/* Step 2: Objet de la Demande */}
+          {/* Étape 2 */}
           {currentStep === 2 && (
             <Card>
               <CardHeader>
@@ -446,16 +715,19 @@ const LegalConsultationForm = () => {
                   render={({ field }) => (
                     <FormItem>
                       <FormLabel>Type de Droit Concerné *</FormLabel>
-                      <Select onValueChange={field.onChange} value={field.value}>
+                      <Select
+                        onValueChange={field.onChange}
+                        value={field.value}
+                      >
                         <FormControl>
                           <SelectTrigger>
                             <SelectValue />
                           </SelectTrigger>
                         </FormControl>
                         <SelectContent>
-                          {legalDomainOptions.map((option) => (
-                            <SelectItem key={option.value} value={option.value}>
-                              {option.label}
+                          {legalDomainOptions.map((o) => (
+                            <SelectItem key={o.value} value={o.value}>
+                              {o.label}
                             </SelectItem>
                           ))}
                         </SelectContent>
@@ -464,14 +736,13 @@ const LegalConsultationForm = () => {
                     </FormItem>
                   )}
                 />
-
                 {selectedLegalDomain === "autre" && (
                   <FormField
                     control={form.control}
                     name="otherLegalDomain"
                     render={({ field }) => (
                       <FormItem>
-                        <FormLabel>Précisez le domaine juridique</FormLabel>
+                        <FormLabel>Précisez le domaine *</FormLabel>
                         <FormControl>
                           <Input {...field} />
                         </FormControl>
@@ -487,16 +758,19 @@ const LegalConsultationForm = () => {
                   render={({ field }) => (
                     <FormItem>
                       <FormLabel>Nature du Conseil *</FormLabel>
-                      <Select onValueChange={field.onChange} value={field.value}>
+                      <Select
+                        onValueChange={field.onChange}
+                        value={field.value}
+                      >
                         <FormControl>
                           <SelectTrigger>
                             <SelectValue />
                           </SelectTrigger>
                         </FormControl>
                         <SelectContent>
-                          {counselTypeOptions.map((option) => (
-                            <SelectItem key={option.value} value={option.value}>
-                              {option.label}
+                          {counselTypeOptions.map((o) => (
+                            <SelectItem key={o.value} value={o.value}>
+                              {o.label}
                             </SelectItem>
                           ))}
                         </SelectContent>
@@ -505,14 +779,13 @@ const LegalConsultationForm = () => {
                     </FormItem>
                   )}
                 />
-
                 {selectedCounselType === "autre" && (
                   <FormField
                     control={form.control}
                     name="otherCounselType"
                     render={({ field }) => (
                       <FormItem>
-                        <FormLabel>Précisez la nature du conseil</FormLabel>
+                        <FormLabel>Précisez la nature du conseil *</FormLabel>
                         <FormControl>
                           <Input {...field} />
                         </FormControl>
@@ -525,7 +798,7 @@ const LegalConsultationForm = () => {
             </Card>
           )}
 
-          {/* Step 3: Description Détaillée */}
+          {/* Étape 3 */}
           {currentStep === 3 && (
             <Card>
               <CardHeader>
@@ -540,19 +813,14 @@ const LegalConsultationForm = () => {
                   name="factDescription"
                   render={({ field }) => (
                     <FormItem>
-                      <FormLabel>Veuillez décrire précisément les faits *</FormLabel>
+                      <FormLabel>Décrivez précisément les faits *</FormLabel>
                       <FormControl>
-                        <Textarea 
-                          {...field} 
-                          className="min-h-[120px]"
-                          placeholder="Décrivez en détail la situation qui nécessite un conseil juridique..."
-                        />
+                        <Textarea {...field} className="min-h-[120px]" />
                       </FormControl>
                       <FormMessage />
                     </FormItem>
                   )}
                 />
-
                 <FormField
                   control={form.control}
                   name="legalQuestions"
@@ -560,29 +828,22 @@ const LegalConsultationForm = () => {
                     <FormItem>
                       <FormLabel>Questions juridiques spécifiques *</FormLabel>
                       <FormControl>
-                        <Textarea 
-                          {...field} 
-                          className="min-h-[100px]"
-                          placeholder="Quelles sont vos questions juridiques précises ?"
-                        />
+                        <Textarea {...field} className="min-h-[100px]" />
                       </FormControl>
                       <FormMessage />
                     </FormItem>
                   )}
                 />
-
                 <FormField
                   control={form.control}
                   name="involvedParties"
                   render={({ field }) => (
                     <FormItem>
-                      <FormLabel>Parties impliquées (noms et fonctions)</FormLabel>
+                      <FormLabel>
+                        Parties impliquées (noms et fonctions)
+                      </FormLabel>
                       <FormControl>
-                        <Textarea 
-                          {...field} 
-                          className="min-h-[80px]"
-                          placeholder="Listez les personnes ou entités impliquées..."
-                        />
+                        <Textarea {...field} className="min-h-[80px]" />
                       </FormControl>
                       <FormMessage />
                     </FormItem>
@@ -592,13 +853,13 @@ const LegalConsultationForm = () => {
             </Card>
           )}
 
-          {/* Step 4: Documents & Délai */}
+          {/* Étape 4 */}
           {currentStep === 4 && (
             <Card>
               <CardHeader>
                 <CardTitle className="flex items-center gap-2">
                   <Upload className="h-5 w-5" />
-                  Documents Annexes & Délai Souhaité
+                  Documents Annexes (optionnel)
                 </CardTitle>
               </CardHeader>
               <CardContent className="space-y-6">
@@ -614,14 +875,11 @@ const LegalConsultationForm = () => {
                         />
                       </FormControl>
                       <div className="space-y-1 leading-none">
-                        <FormLabel>
-                          J'ai des documents à joindre à ma demande
-                        </FormLabel>
+                        <FormLabel>J'ai des documents à joindre</FormLabel>
                       </div>
                     </FormItem>
                   )}
                 />
-
                 {hasDocuments && (
                   <div className="space-y-4">
                     <FormField
@@ -629,7 +887,7 @@ const LegalConsultationForm = () => {
                       name="documentTypes"
                       render={() => (
                         <FormItem>
-                          <FormLabel>Types de documents (cochez les cases appropriées)</FormLabel>
+                          <FormLabel>Types de documents (cochez)</FormLabel>
                           <div className="grid grid-cols-1 gap-3">
                             {documentTypeOptions.map((type) => (
                               <FormField
@@ -643,10 +901,15 @@ const LegalConsultationForm = () => {
                                         checked={field.value?.includes(type)}
                                         onCheckedChange={(checked) => {
                                           return checked
-                                            ? field.onChange([...field.value || [], type])
+                                            ? field.onChange([
+                                                ...(field.value || []),
+                                                type,
+                                              ])
                                             : field.onChange(
-                                                field.value?.filter((value) => value !== type)
-                                              )
+                                                field.value?.filter(
+                                                  (v: string) => v !== type
+                                                )
+                                              );
                                         }}
                                       />
                                     </FormControl>
@@ -661,8 +924,9 @@ const LegalConsultationForm = () => {
                         </FormItem>
                       )}
                     />
-
-                    {selectedDocumentTypes.includes("Autres documents pertinents") && (
+                    {selectedDocumentTypes.includes(
+                      "Autres documents pertinents"
+                    ) && (
                       <FormField
                         control={form.control}
                         name="otherDocuments"
@@ -677,7 +941,6 @@ const LegalConsultationForm = () => {
                         )}
                       />
                     )}
-
                     <div className="space-y-4">
                       <Label>Joindre les documents</Label>
                       <div className="border-2 border-dashed border-gray-300 rounded-lg p-6 text-center">
@@ -698,16 +961,18 @@ const LegalConsultationForm = () => {
                             Cliquez pour sélectionner des fichiers
                           </span>
                           <span className="text-xs text-gray-500">
-                            PDF, DOC, DOCX, JPG, PNG (max 10MB par fichier)
+                            PDF, DOC, DOCX, JPG, PNG (max 10MB/fichier)
                           </span>
                         </label>
                       </div>
-
                       {uploadedFiles.length > 0 && (
                         <div className="space-y-2">
-                          <Label>Fichiers sélectionnés:</Label>
+                          <Label>Fichiers sélectionnés :</Label>
                           {uploadedFiles.map((file, index) => (
-                            <div key={index} className="flex items-center justify-between p-2 bg-gray-50 rounded">
+                            <div
+                              key={index}
+                              className="flex items-center justify-between p-2 bg-gray-50 rounded"
+                            >
                               <span className="text-sm">{file.name}</span>
                               <Button
                                 type="button"
@@ -724,51 +989,11 @@ const LegalConsultationForm = () => {
                     </div>
                   </div>
                 )}
-
-                <Separator />
-
-                <FormField
-                  control={form.control}
-                  name="responseDeadline"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Délai Souhaité pour la Réponse *</FormLabel>
-                      <FormControl>
-                        <RadioGroup onValueChange={field.onChange} value={field.value}>
-                          <div className="flex items-center space-x-2">
-                            <RadioGroupItem value="48h" id="48h" />
-                            <Label htmlFor="48h">48 heures (Urgent) - 75 000 FCFA</Label>
-                          </div>
-                          <div className="flex items-center space-x-2">
-                            <RadioGroupItem value="5_jours" id="5_jours" />
-                            <Label htmlFor="5_jours">5 jours ouvrés - 50 000 FCFA</Label>
-                          </div>
-                          <div className="flex items-center space-x-2">
-                            <RadioGroupItem value="a_convenir" id="a_convenir" />
-                            <Label htmlFor="a_convenir">À convenir selon la complexité - 60 000 FCFA</Label>
-                          </div>
-                        </RadioGroup>
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-
-                {selectedDeadline && (
-                  <div className="p-4 bg-red-50 border border-red-200 rounded-lg">
-                    <h4 className="font-semibold text-red-900 mb-2">
-                      Récapitulatif de votre choix:
-                    </h4>
-                    <p className="text-red-800">
-                      {consultationPricing[selectedDeadline].name} - {consultationPricing[selectedDeadline].price.toLocaleString()} FCFA
-                    </p>
-                  </div>
-                )}
               </CardContent>
             </Card>
           )}
 
-          {/* Step 5: Consentements */}
+          {/* Étape 5 */}
           {currentStep === 5 && (
             <Card>
               <CardHeader>
@@ -780,11 +1005,11 @@ const LegalConsultationForm = () => {
               <CardContent className="space-y-4">
                 <div className="p-4 bg-blue-50 border border-blue-200 rounded-lg">
                   <p className="text-sm text-blue-800">
-                    Je certifie que les informations fournies sont exactes et autorise le cabinet LAWRY 
-                    à traiter ces informations de manière confidentielle dans le cadre de ma demande juridique.
+                    Je certifie que les informations fournies sont exactes et
+                    autorise le cabinet LAWRY à traiter ces informations de
+                    manière confidentielle.
                   </p>
                 </div>
-
                 <FormField
                   control={form.control}
                   name="dataConsent"
@@ -801,13 +1026,13 @@ const LegalConsultationForm = () => {
                           Consentement pour la conservation des données *
                         </FormLabel>
                         <p className="text-sm text-gray-600">
-                          J'accepte que mes données personnelles soient conservées pour le traitement de ma demande.
+                          J'accepte que mes données personnelles soient
+                          conservées pour le traitement de ma demande.
                         </p>
                       </div>
                     </FormItem>
                   )}
                 />
-
                 <FormField
                   control={form.control}
                   name="digitalConsent"
@@ -821,24 +1046,26 @@ const LegalConsultationForm = () => {
                       </FormControl>
                       <div className="space-y-1 leading-none">
                         <FormLabel>
-                          Consentement pour la communication digitale (via Legal Tech)
+                          Consentement pour la communication digitale
                         </FormLabel>
                         <p className="text-sm text-gray-600">
-                          J'accepte de recevoir des communications par voie électronique.
+                          J'accepte de recevoir des communications par voie
+                          électronique.
                         </p>
                       </div>
                     </FormItem>
                   )}
                 />
-
-                <div className="mt-6 p-4 bg-green-50 border border-green-200 rounded-lg">
+                <div className="mt-2 p-4 bg-green-50 border border-green-200 rounded-lg">
                   <div className="flex items-start space-x-3">
                     <AlertCircle className="h-5 w-5 text-green-600 mt-0.5" />
                     <div>
-                      <h4 className="font-semibold text-green-800 mb-1">Confidentialité garantie</h4>
+                      <h4 className="font-semibold text-green-800 mb-1">
+                        Confidentialité garantie
+                      </h4>
                       <p className="text-sm text-green-700">
-                        Toutes vos informations sont protégées par le secret professionnel et traitées 
-                        de manière strictement confidentielle.
+                        Vos informations sont protégées par le secret
+                        professionnel.
                       </p>
                     </div>
                   </div>
@@ -847,23 +1074,23 @@ const LegalConsultationForm = () => {
             </Card>
           )}
 
-          {/* Navigation buttons */}
-          <div className="flex justify-between pt-6">
+          {/* Navigation */}
+          <div className="flex justify-between pt-2">
             <Button
               type="button"
               variant="outline"
               onClick={prevStep}
-              disabled={currentStep === 1}
+              disabled={currentStep === 1 || submitting}
               className="flex items-center gap-2"
             >
               <ChevronLeft className="h-4 w-4" />
               Précédent
             </Button>
-
             {currentStep < steps.length ? (
               <Button
                 type="button"
                 onClick={nextStep}
+                disabled={submitting}
                 className="bg-red-900 hover:bg-red-800 flex items-center gap-2"
               >
                 Suivant
@@ -872,15 +1099,156 @@ const LegalConsultationForm = () => {
             ) : (
               <Button
                 type="submit"
+                disabled={submitting}
+                aria-busy={submitting}
                 className="bg-red-900 hover:bg-red-800 flex items-center gap-2"
               >
-                <Clock className="h-4 w-4" />
-                Finaliser la Demande
+                {submitting ? (
+                  <>
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                    Envoi...
+                  </>
+                ) : (
+                  <>Finaliser la Demande</>
+                )}
               </Button>
             )}
           </div>
         </form>
       </Form>
+
+      {/* SUCCESS MODAL */}
+      <Dialog
+        open={successOpen}
+        onOpenChange={(open) => {
+          if (!open) {
+            setSuccessOpen(false);
+            form.reset();
+            setUploadedFiles([]);
+            navigate("/", { replace: true });
+          } else {
+            setSuccessOpen(true);
+          }
+
+          if (!open) {
+            if (closeRedirect === "orders") {
+              const url = successRef
+                ? `/client/commandes?ref=${encodeURIComponent(successRef)}`
+                : "/client/commandes";
+              setCloseRedirect(null);
+              navigate(url);
+            } else {
+              setCloseRedirect(null);
+              navigate("/"); // accueil
+            }
+          }
+        }}
+      >
+        <DialogContent className="max-w-ld">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <CheckCircle className="h-5 w-5 text-green-600 text-2xl" />
+              Demande envoyée avec succès
+            </DialogTitle>
+          </DialogHeader>
+
+          <div className="space-y-4">
+            <p className="text-gray-700">
+              Merci ! Votre demande a bien été enregistrée. Conservez votre
+              numéro de suivi.
+            </p>
+
+            <div className="rounded-lg border bg-gray-50 p-3 flex items-center justify-between">
+              <div>
+                <p className="text-xs text-gray-500">Numéro de demande</p>
+                <p className="font-mono text-lg">{successRef || "—"}</p>
+              </div>
+              <Button
+                variant="outline"
+                size="icon"
+                onClick={() => {
+                  if (successRef) {
+                    navigator.clipboard.writeText(successRef);
+                    toast({
+                      title: "Copié !",
+                      description: "Numéro de demande copié.",
+                    });
+                  }
+                }}
+              >
+                <Copy className="h-4 w-4" />
+              </Button>
+            </div>
+
+            <div className="text-sm text-gray-600">
+              Vous pouvez suivre l’avancement et échanger avec votre juriste
+              depuis votre espace.
+            </div>
+          </div>
+          {!isLoggedIn && (
+            <div className="rounded-lg border border-yellow-200 bg-yellow-50 p-4 space-y-2">
+              <p className="text-sm text-yellow-900 font-semibold">
+                Pas encore de compte ?
+              </p>
+              <p className="text-sm text-yellow-800">
+                Un compte a été créé avec votre e-mail
+                {userEmailForReset ? (
+                  <>
+                    {" "}
+                    <strong> {userEmailForReset}</strong>
+                  </>
+                ) : (
+                  " "
+                )}
+                . Pour accéder à votre espace, allez sur la page de connexion
+                puis utilisez
+                <strong> « Mot de passe oublié »</strong> avec votre adresse
+                e-mail pour définir un mot de passe.
+              </p>
+              <div className="flex flex-wrap gap-2 pt-2">
+                <Button variant="outline" asChild>
+                  <a href="/login">Se connecter</a>
+                </Button>
+                <Button variant="outline" asChild>
+                  <a
+                    href={`/forgot-password${
+                      userEmailForReset
+                        ? `?email=${encodeURIComponent(userEmailForReset)}`
+                        : ""
+                    }`}
+                  >
+                    Mot de passe oublié
+                  </a>
+                </Button>
+              </div>
+            </div>
+          )}
+
+          <DialogFooter className="flex gap-2">
+            <Button
+              variant="outline"
+              onClick={() => {
+                form.reset();
+                setUploadedFiles([]);
+                setCloseRedirect("home");
+                setSuccessOpen(false);
+              }}
+            >
+              Fermer
+            </Button>
+            <Button
+              className="bg-red-900 hover:bg-red-800"
+              onClick={() => {
+                setCloseRedirect("orders");
+                setSuccessOpen(false);
+              }}
+            >
+              <ExternalLink className="h-4 w-4 mr-2" />
+              Suivre ma demande
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 };

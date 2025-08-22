@@ -1,8 +1,13 @@
-
 import Header from "@/components/Header";
 import Footer from "@/components/Footer";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { MapPin, Phone, Mail, Clock } from "lucide-react";
@@ -11,7 +16,7 @@ const Contact = () => {
   return (
     <div className="min-h-screen bg-gray-50">
       <Header />
-      
+
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-12">
         {/* Hero Section */}
         <div className="text-center mb-12">
@@ -19,8 +24,8 @@ const Contact = () => {
             Contactez-nous
           </h1>
           <p className="text-xl text-gray-600 max-w-3xl mx-auto">
-            Notre équipe d'experts juridiques est à votre écoute pour répondre 
-            à toutes vos questions et vous accompagner dans vos démarches.
+            Notre équipe d'experts juridiques est à votre écoute pour répondre à
+            toutes vos questions et vous accompagner dans vos démarches.
           </p>
         </div>
 
@@ -30,7 +35,8 @@ const Contact = () => {
             <CardHeader>
               <CardTitle>Envoyez-nous un message</CardTitle>
               <CardDescription>
-                Remplissez le formulaire ci-dessous et nous vous répondrons dans les plus brefs délais.
+                Remplissez le formulaire ci-dessous et nous vous répondrons dans
+                les plus brefs délais.
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
@@ -82,7 +88,8 @@ const Contact = () => {
                   <div>
                     <p className="font-medium">Adresse</p>
                     <p className="text-gray-600">
-                      Abidjan, Côte d'Ivoire<br />
+                      Abidjan, Côte d'Ivoire
+                      <br />
                       Plateau, Rue des Jardins
                     </p>
                   </div>
@@ -91,14 +98,17 @@ const Contact = () => {
                   <Phone className="h-5 w-5 text-red-500" />
                   <div>
                     <p className="font-medium">Téléphone</p>
-                    <p className="text-gray-600">+225 XX XX XX XX</p>
+                    <p className="text-gray-600">+225 0101987580</p>
+                    <p className="text-gray-600">+225 0709122074</p>
                   </div>
                 </div>
                 <div className="flex items-center space-x-3">
                   <Mail className="h-5 w-5 text-red-500" />
                   <div>
                     <p className="font-medium">Email</p>
-                    <p className="text-gray-600">contact@lawryconseils.ci</p>
+                    <p className="text-gray-600">
+                      contact.lawryconsulting@gmail.com
+                    </p>
                   </div>
                 </div>
                 <div className="flex items-center space-x-3">
@@ -106,7 +116,8 @@ const Contact = () => {
                   <div>
                     <p className="font-medium">Horaires</p>
                     <p className="text-gray-600">
-                      Lundi - Vendredi: 8h - 18h<br />
+                      Lundi - Vendredi: 8h - 18h
+                      <br />
                       Samedi: 9h - 13h
                     </p>
                   </div>
@@ -117,11 +128,14 @@ const Contact = () => {
             {/* Emergency Contact */}
             <Card className="bg-red-50 border-red-200">
               <CardHeader>
-                <CardTitle className="text-red-900">Urgence juridique ?</CardTitle>
+                <CardTitle className="text-red-900">
+                  Urgence juridique ?
+                </CardTitle>
               </CardHeader>
               <CardContent>
                 <p className="text-gray-700 mb-4">
-                  Pour les situations urgentes nécessitant une intervention immédiate.
+                  Pour les situations urgentes nécessitant une intervention
+                  immédiate.
                 </p>
                 <Button className="bg-red-900 hover:bg-red-800">
                   <Phone className="mr-2 h-4 w-4" />

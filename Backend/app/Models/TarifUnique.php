@@ -13,10 +13,17 @@ use ApiPlatform\Metadata\Patch;
 use ApiPlatform\Metadata\Delete;
 
 #[ApiResource(
-    operations: [new GetCollection(), new Get(), new Post(), new Patch(), new Delete()],
     paginationItemsPerPage: 20,
     rules: \App\Http\Requests\TarifUniqueUpsertRequest::class,
+    operations: [
+        new GetCollection(),
+        new Get(),
+        new Post(middleware: ['auth:sanctum', 'permission:tarifs.create']),
+        new Patch(middleware: ['auth:sanctum', 'permission:tarifs.update']),
+        new Delete(middleware: ['auth:sanctum', 'permission:tarifs.delete']),
+    ],
 )]
+
 class TarifUnique extends Model
 {
     use HasFactory;

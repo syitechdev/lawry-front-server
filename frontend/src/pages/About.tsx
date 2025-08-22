@@ -596,8 +596,11 @@ const About = () => {
             </div>
             <div>
               <h3 className="font-semibold text-gray-900 mb-4">Contact</h3>
-              <p className="text-gray-600 mb-2">📧 contact@lawry.fr</p>
-              <p className="text-gray-600 mb-2">📞 +33 1 23 45 67 89</p>
+              <p className="text-gray-600 mb-2">
+                📧 contact.lawryconsulting@gmail.com
+              </p>
+              <p className="text-gray-600 mb-2">📞 +225 0101987580</p>
+              <p className="text-gray-600 mb-2">📞 +225 0709122074</p>
               <p className="text-gray-600">⏰ Lun-Ven 9h-18h</p>
             </div>
           </div>

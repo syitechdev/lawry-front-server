@@ -13,10 +13,17 @@ use ApiPlatform\Metadata\Patch;
 use ApiPlatform\Metadata\Delete;
 
 #[ApiResource(
-    operations: [new GetCollection(), new Get(), new Post(), new Patch(), new Delete()],
     paginationItemsPerPage: 20,
     rules: \App\Http\Requests\EnterpriseTypeUpsertRequest::class,
+    operations: [
+        new GetCollection(),
+        new Get(),
+        new Post(middleware: ['auth:sanctum', 'permission:enterprise-types.create']),
+        new Patch(middleware: ['auth:sanctum', 'permission:enterprise-types.update']),
+        new Delete(middleware: ['auth:sanctum', 'permission:enterprise-types.delete']),
+    ],
 )]
+
 class EnterpriseType extends Model
 {
     use HasFactory;

@@ -14,10 +14,19 @@ use ApiPlatform\Metadata\Patch;
 use ApiPlatform\Metadata\Delete;
 
 #[ApiResource(
-    operations: [new GetCollection(), new Get(), new Post(), new Patch(), new Delete()],
     paginationItemsPerPage: 20,
     rules: \App\Http\Requests\BoutiqueUpsertRequest::class,
+    middleware: ['auth:sanctum'],
+    operations: [
+        new GetCollection(middleware: ['permission:boutiques.read']),
+        new Get(middleware: ['permission:boutiques.read']),
+        new Post(middleware: ['permission:boutiques.create']),
+        new Patch(middleware: ['permission:boutiques.update']),
+        new Delete(middleware: ['permission:boutiques.delete']),
+    ],
 )]
+
+
 class Boutique extends Model
 {
     use HasFactory;

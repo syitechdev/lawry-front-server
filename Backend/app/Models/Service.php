@@ -17,10 +17,18 @@ use ApiPlatform\Laravel\Eloquent\Filter\PartialSearchFilter;
 use ApiPlatform\Laravel\Eloquent\Filter\OrderFilter;
 
 #[ApiResource(
-    operations: [new GetCollection(), new Get(), new Post(), new Patch(), new Delete()],
     paginationItemsPerPage: 20,
     rules: \App\Http\Requests\ServiceUpsertRequest::class,
+    operations: [
+        new GetCollection(), // public
+        new Get(),           // public
+        new Post(middleware: ['auth:sanctum', 'permission:services.create']),
+        new Patch(middleware: ['auth:sanctum', 'permission:services.update']),
+        new Delete(middleware: ['auth:sanctum', 'permission:services.delete']),
+    ],
 )]
+
+
 #[QueryParameter(key: ':property', filter: PartialSearchFilter::class)]
 #[QueryParameter(key: 'sort[:property]', filter: OrderFilter::class)]
 class Service extends Model

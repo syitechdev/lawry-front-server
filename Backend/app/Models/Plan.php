@@ -14,9 +14,15 @@ use ApiPlatform\Metadata\Patch;
 use ApiPlatform\Metadata\Delete;
 
 #[ApiResource(
-    operations: [new GetCollection(), new Get(), new Post(), new Patch(), new Delete()],
     paginationItemsPerPage: 20,
     rules: \App\Http\Requests\PlanUpsertRequest::class,
+    operations: [
+        new GetCollection(),
+        new Get(),
+        new Post(middleware: ['auth:sanctum', 'permission:plans.create']),
+        new Patch(middleware: ['auth:sanctum', 'permission:plans.update']),
+        new Delete(middleware: ['auth:sanctum', 'permission:plans.delete']),
+    ],
 )]
 class Plan extends Model
 {

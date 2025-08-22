@@ -63,10 +63,32 @@ class AuthController extends Controller
         ]);
     }
 
-    public function me(Request $request)
+    public function me(\Illuminate\Http\Request $request)
     {
-        return new UserResource($request->user());
+        /** @var \App\Models\User $user */
+        $user = $request->user();
+        $user->load('roles');
+
+        return response()->json([
+            'id' => $user->id,
+            'code' => $user->code,
+            'name' => $user->name,
+            'email' => $user->email,
+            'phone' => $user->phone,
+            'address' => $user->address,
+            'profession' => $user->profession,
+            'nationality' => $user->nationality,
+            'status' => $user->status,
+            'services_count' => $user->services_count,
+            'last_activity_at' => $user->last_activity_at,
+            'email_verified_at' => $user->email_verified_at,
+            'roles' => $user->getRoleNames()->values(),
+            'permissions' => $user->getAllPermissions()->pluck('name')->values(),
+            'created_at' => $user->created_at,
+            'updated_at' => $user->updated_at,
+        ]);
     }
+
 
     public function updateMe(UpdateSelfRequest $request)
     {

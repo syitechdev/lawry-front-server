@@ -13,10 +13,17 @@ use ApiPlatform\Metadata\Patch;
 use ApiPlatform\Metadata\Delete;
 
 #[ApiResource(
-    operations: [new GetCollection(), new Get(), new Post(), new Patch(), new Delete()],
     paginationItemsPerPage: 20,
     rules: \App\Http\Requests\FormationUpsertRequest::class,
+    operations: [
+        new GetCollection(),
+        new Get(),
+        new Post(middleware: ['auth:sanctum', 'permission:formations.create']),
+        new Patch(middleware: ['auth:sanctum', 'permission:formations.update']),
+        new Delete(middleware: ['auth:sanctum', 'permission:formations.delete']),
+    ],
 )]
+
 class Formation extends Model
 {
     use HasFactory;

@@ -23,16 +23,18 @@ use ApiPlatform\Laravel\Eloquent\Filter\OrderFilter;
 
 #[ApiResource(
     paginationItemsPerPage: 20,
+    middleware: ['auth:sanctum'],
     operations: [
-        new GetCollection(),
-        new Get(),
-        new Post(),
-        new Patch(),
-        new Delete(),
+        new GetCollection(middleware: ['permission:users.read']),
+        new Get(middleware: ['permission:users.read']),
+        new Post(middleware: ['permission:users.create']),
+        new Patch(middleware: ['permission:users.update']),
+        new Delete(middleware: ['permission:users.delete']),
     ],
 )]
 #[QueryParameter(key: ':property', filter: PartialSearchFilter::class)]
 #[QueryParameter(key: 'sort[:property]', filter: OrderFilter::class)]
+
 class User extends Authenticatable
 {
     use HasApiTokens, HasFactory, Notifiable, HasRoles;
@@ -49,6 +51,8 @@ class User extends Authenticatable
         'services_count',
         'last_activity_at',
         'code',
+        'profession',
+        'nationality'
     ];
 
     protected $hidden = [

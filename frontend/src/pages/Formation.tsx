@@ -623,11 +623,15 @@ const Formation = () => {
                   </h4>
                   <div className="flex items-center text-sm text-gray-600">
                     <Phone className="h-4 w-4 mr-2 text-red-900" />
-                    +225 XX XX XX XX XX
+                    +225 0101987580
+                  </div>
+                  <div className="flex items-center text-sm text-gray-600">
+                    <Phone className="h-4 w-4 mr-2 text-red-900" />
+                    +225 0709122074
                   </div>
                   <div className="flex items-center text-sm text-gray-600">
                     <Mail className="h-4 w-4 mr-2 text-red-900" />
-                    formation@lawry.ci
+                    contact.lawryconsulting@gmail.com
                   </div>
                   <div className="flex items-center text-sm text-gray-600">
                     <MapPin className="h-4 w-4 mr-2 text-red-900" />

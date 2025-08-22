@@ -1,5 +1,5 @@
 import { useEffect, useState, useMemo } from "react";
-import { Link, useLocation, useNavigate } from "react-router-dom";
+import { Link, NavLink, useLocation, useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -28,7 +28,8 @@ import {
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { logout } from "@/lib/auth";
-import { http } from "@/lib/http"; // <<< NEW
+import { http } from "@/lib/http";
+import { can, isSuperAdmin } from "@/lib/rbac";
 
 type RoleName = "Admin" | "Client" | string;
 
@@ -53,6 +54,22 @@ interface SidebarProps {
   userEmail?: string;
 }
 
+interface RequestType {
+  id: number;
+  name: string;
+  slug: string;
+  unread_count?: number;
+}
+
+type MenuItem = {
+  icon: any;
+  label: string;
+  path: string;
+  badge: string | null;
+  permission?: string | string[];
+  mode?: "any" | "all";
+};
+
 const BackofficeSidebar = ({
   userRole,
   userName = "Utilisateur",
@@ -63,7 +80,6 @@ const BackofficeSidebar = ({
   const navigate = useNavigate();
   const { toast } = useToast();
 
-  // Auth
   const [authToken, setAuthToken] = useState<string | null>(null);
   const [authUser, setAuthUser] = useState<CurrentUser | null>(null);
 
@@ -88,7 +104,6 @@ const BackofficeSidebar = ({
     return () => window.removeEventListener("storage", onStorage);
   }, []);
 
-  // Rôle
   const detectedRole: "admin" | "client" = (() => {
     const roles = (authUser?.roles || []).map((r) => String(r).toLowerCase());
     if (
@@ -102,7 +117,6 @@ const BackofficeSidebar = ({
   })();
   const role: "admin" | "client" = userRole ?? detectedRole;
 
-  // Affichage
   const displayName = authUser?.name ?? userName;
   const displayEmail = authUser?.email ?? userEmail;
   const displayRoleLabel = role === "admin" ? "Administrateur" : "Client";
@@ -130,114 +144,141 @@ const BackofficeSidebar = ({
     }
   };
 
+  // ----------------- DYNAMIQUES -----------------
   const [unreadRegs, setUnreadRegs] = useState<number | null>(null);
+  const [unreadDemandes, setUnreadDemandes] = useState<number | null>(null);
+  const [requestTypes, setRequestTypes] = useState<RequestType[]>([]);
 
   const fetchUnreadRegistrationsCount = async () => {
     if (role !== "admin") return;
     try {
       const { data } = await http.get("/admin/registrations/unread-count");
       const c = Number(data?.count ?? 0);
-      setUnreadRegs(c > 0 ? c : null); //
+      setUnreadRegs(c > 0 ? c : null);
     } catch {
       setUnreadRegs(null);
     }
   };
 
+  const fetchUnreadDemandesCount = async () => {
+    if (role !== "admin") return;
+    try {
+      const { data } = await http.get("/admin/demandes/unread-count");
+      const c = Number(data?.unread ?? 0);
+      setUnreadDemandes(c > 0 ? c : null);
+    } catch {
+      setUnreadDemandes(null);
+    }
+  };
+
+  const fetchRequestTypes = async () => {
+    if (role !== "admin") return;
+    try {
+      const { data } = await http.get("/admin/request-types");
+      const list: RequestType[] = Array.isArray(data)
+        ? data
+        : Array.isArray((data as any)?.data)
+        ? (data as any).data
+        : [];
+      setRequestTypes(
+        list
+          .filter((t) => t?.slug && t?.name)
+          .map((t) => ({
+            id: t.id,
+            name: t.name,
+            slug: t.slug,
+            unread_count: t.unread_count,
+          }))
+      );
+    } catch {
+      setRequestTypes([]);
+    }
+  };
+
   useEffect(() => {
     fetchUnreadRegistrationsCount();
+    fetchUnreadDemandesCount();
+    fetchRequestTypes();
   }, [location.pathname, role, authToken]);
-  // ---------------------------------------------------------------------
 
-  // Menu (dynamique pour le badge "Formation users")
-  const adminMenuItems = useMemo(
+  useEffect(() => {
+    const shouldOpen =
+      location.pathname.startsWith("/admin/demandes") ||
+      location.pathname.startsWith("/admin/types/");
+    setOpenDemandes(shouldOpen);
+  }, [location.pathname]);
+
+  const adminMenuItems: MenuItem[] = useMemo(
     () => [
       {
         icon: LayoutDashboard,
         label: "Dashboard",
         path: "/admin",
-        badge: null as string | null,
+        badge: null,
       },
       {
         icon: FileText,
         label: "Demandes",
         path: "/admin/demandes",
-        badge: null as string | null,
+        badge:
+          unreadDemandes !== null && unreadDemandes > 0
+            ? String(unreadDemandes)
+            : null,
       },
-
-      {
-        icon: Users,
-        label: "Clients",
-        path: "/admin/clients",
-        badge: null as string | null,
-      },
+      { icon: Users, label: "Clients", path: "/admin/clients", badge: null },
       {
         icon: ShoppingCart,
         label: "Boutique",
         path: "/admin/boutique",
-        badge: null as string | null,
+        badge: null,
       },
       {
         icon: GraduationCap,
         label: "Formations",
         path: "/admin/formations",
-        badge: null as string | null,
+        badge: null,
       },
-
       {
         icon: FileText,
         label: "Formation users",
         path: "/admin/inscriptions",
         badge:
-          unreadRegs !== null && unreadRegs > 0 ? String(unreadRegs) : null, // <<< DYNAMIQUE
+          unreadRegs !== null && unreadRegs > 0 ? String(unreadRegs) : null,
       },
-
       {
         icon: Briefcase,
         label: "Nos Services",
         path: "/admin/services",
-        badge: null as string | null,
+        badge: null,
       },
       {
         icon: Crown,
         label: "Plans & Tarifs",
         path: "/admin/plans",
-        badge: null as string | null,
+        badge: null,
       },
-      {
-        icon: Rss,
-        label: "Blog",
-        path: "/admin/blog",
-        badge: null as string | null,
-      },
+      { icon: Rss, label: "Blog", path: "/admin/blog", badge: null },
       {
         icon: Crop,
         label: "Catégories",
         path: "/admin/categories",
-        badge: null as string | null,
+        badge: null,
       },
-      {
-        icon: Tags,
-        label: "Types",
-        path: "/admin/types",
-        badge: null as string | null,
-      },
+      { icon: Tags, label: "Types", path: "/admin/types", badge: null },
+      // ⬇️ Paramètres visible si Admin OU permission rbac.manage
       {
         icon: Settings,
         label: "Paramètres",
         path: "/admin/parametres",
-        badge: null as string | null,
+        badge: null,
+        permission: "rbac.manage",
       },
     ],
-    [unreadRegs]
+    [unreadRegs, unreadDemandes]
   );
 
-  const clientMenuItems = [
-    {
-      icon: LayoutDashboard,
-      label: "Dashboard",
-      path: "/client",
-      badge: null as string | null,
-    },
+  const clientMenuItems: MenuItem[] = [
+    { icon: LayoutDashboard, label: "Dashboard", path: "/client", badge: null },
     {
       icon: FileText,
       label: "Mes Commandes",
@@ -248,36 +289,48 @@ const BackofficeSidebar = ({
       icon: CreditCard,
       label: "Paiements",
       path: "/client/paiements",
-      badge: null as string | null,
+      badge: null,
     },
     {
       icon: ShoppingCart,
       label: "Boutique",
       path: "/client/boutique",
-      badge: null as string | null,
+      badge: null,
     },
     {
       icon: Crown,
       label: "Plans & Tarifs",
       path: "/client/plans",
-      badge: null as string | null,
+      badge: null,
     },
-    {
-      icon: User,
-      label: "Profil",
-      path: "/client/profil",
-      badge: null as string | null,
-    },
+    { icon: User, label: "Profil", path: "/client/profil", badge: null },
   ];
 
   const menuItems = role === "admin" ? adminMenuItems : clientMenuItems;
+
+  const filteredMenuItems = useMemo(
+    () =>
+      menuItems.filter((it) =>
+        it.permission
+          ? isSuperAdmin() ||
+            can(it.permission as string | string[], it.mode || "any")
+          : true
+      ),
+    [menuItems]
+  );
+
   const isActiveLink = (path: string) => location.pathname === path;
 
-  // Sous-menu “Types”
   const [openTypes, setOpenTypes] = useState<boolean>(
     () =>
       location.pathname.startsWith("/admin/types-entreprise") ||
       location.pathname === "/admin/types"
+  );
+
+  const [openDemandes, setOpenDemandes] = useState<boolean>(
+    () =>
+      location.pathname.startsWith("/admin/demandes") ||
+      location.pathname.startsWith("/admin/types/")
   );
 
   const themeColors =
@@ -388,10 +441,136 @@ const BackofficeSidebar = ({
       <ScrollArea className="flex-1 px-4">
         <nav className="pb-4">
           <div className="space-y-2">
-            {menuItems.map((item, index) => {
+            {filteredMenuItems.map((item, index) => {
               const Icon = item.icon as any;
 
-              // Bloc spécial pour "Types" (avec sous-menu)
+              // "Demandes" (sous-menu)
+              if (role === "admin" && item.label === "Demandes") {
+                const activeParent =
+                  location.pathname.startsWith("/admin/demandes") ||
+                  location.pathname.startsWith("/admin/types/");
+
+                const parentBadge = item.badge;
+
+                return (
+                  <div key={`demandes-${index}`} className="space-y-1">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (isCollapsed) setIsCollapsed(false);
+                        setOpenDemandes((v) => !v);
+                      }}
+                      className={`w-full flex items-center space-x-4 px-4 py-3 rounded-xl transition-all duration-200 group ${
+                        activeParent
+                          ? themeColors.activeLink
+                          : themeColors.normalLink
+                      }`}
+                    >
+                      <div
+                        className={`p-2 rounded-lg transition-colors ${
+                          activeParent
+                            ? "bg-white shadow-sm"
+                            : "group-hover:bg-red-100"
+                        }`}
+                      >
+                        <FileText
+                          className={`h-5 w-5 ${
+                            activeParent ? "text-red-800" : ""
+                          }`}
+                        />
+                      </div>
+                      {!isCollapsed && (
+                        <>
+                          <span className="font-semibold text-sm ml-3">
+                            Demandes
+                          </span>
+                          <div className="ml-auto flex items-center gap-2">
+                            <ChevronDown
+                              className={`h-4 w-4 transition-transform ${
+                                openDemandes ? "rotate-180" : ""
+                              }`}
+                            />
+                            {parentBadge && (
+                              <Badge
+                                variant="secondary"
+                                className="bg-red-800 text-white text-xs px-2"
+                              >
+                                {parentBadge}
+                              </Badge>
+                            )}
+                          </div>
+                        </>
+                      )}
+                    </button>
+
+                    {!isCollapsed && openDemandes && (
+                      <div className="ml-12 mt-1 space-y-1">
+                        <Link
+                          to="/admin/demandes"
+                          className={`flex items-center px-3 py-2 rounded-lg text-sm transition-all duration-200 ${
+                            location.pathname === "/admin/demandes"
+                              ? "bg-red-50 text-red-800"
+                              : "text-gray-700 hover:bg-red-50 hover:text-red-800"
+                          }`}
+                        >
+                          <FileText className="h-4 w-4 mr-2" />
+                          <span>Liste demandes</span>
+                          {parentBadge && (
+                            <Badge
+                              variant="secondary"
+                              className="ml-auto bg-red-800 text-white text-[10px] px-1.5"
+                            >
+                              {parentBadge}
+                            </Badge>
+                          )}
+                        </Link>
+
+                        {requestTypes.map((t) => {
+                          const derivedSlug = (t.slug || t.name || "")
+                            .toLowerCase()
+                            .normalize("NFD")
+                            .replace(/\p{Diacritic}/gu, "")
+                            .replace(/[^a-z0-9]+/g, "-")
+                            .replace(/^-+|-+$/g, "");
+
+                          const href = `/admin/types/${encodeURIComponent(
+                            derivedSlug
+                          )}`;
+
+                          return (
+                            <NavLink
+                              key={derivedSlug}
+                              to={href}
+                              className={({ isActive }) =>
+                                `flex items-center px-3 py-2 rounded-lg text-sm transition-all duration-200 ${
+                                  isActive
+                                    ? "bg-red-50 text-red-800"
+                                    : "text-gray-700 hover:bg-red-50 hover:text-red-800"
+                                }`
+                              }
+                            >
+                              <Tags className="h-4 w-4 mr-2" />
+                              <span className="truncate">{t.name}</span>
+
+                              {typeof t.unread_count === "number" &&
+                                t.unread_count > 0 && (
+                                  <Badge
+                                    variant="secondary"
+                                    className="ml-auto bg-red-800 text-white text-[10px] px-1.5"
+                                  >
+                                    {t.unread_count}
+                                  </Badge>
+                                )}
+                            </NavLink>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+                );
+              }
+
+              // "Types" (sous-menu)
               if (role === "admin" && item.label === "Types") {
                 const activeParent =
                   location.pathname.startsWith("/admin/types-entreprise") ||
@@ -459,8 +638,8 @@ const BackofficeSidebar = ({
                 );
               }
 
-              // Rendu standard pour les autres entrées
-              const active = location.pathname === item.path;
+              // Liens standards
+              const active = isActiveLink(item.path);
               return (
                 <Link
                   key={index}
@@ -474,7 +653,7 @@ const BackofficeSidebar = ({
                       active ? "bg-white shadow-sm" : "group-hover:bg-red-100"
                     }`}
                   >
-                    <Icon
+                    <item.icon
                       className={`h-5 w-5 ${active ? "text-red-800" : ""}`}
                     />
                   </div>

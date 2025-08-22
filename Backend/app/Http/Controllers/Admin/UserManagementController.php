@@ -43,81 +43,77 @@ class UserManagementController extends Controller
         return UserResource::collection($users);
     }
 
-    public function createUser(UserUpsertRequest $request)
+    public function createUser(\App\Http\Requests\UserUpsertRequest $request)
     {
-        if (! $request->user()->hasRole('Admin')) {
-            return response()->json(['message' => 'Forbidden'], 403);
-        }
-
         $data = $request->validated();
 
-        if (!array_key_exists('status', $data) || empty($data['status'])) {
-            $data['status'] = 'Actif';
+        $roles = $data['roles'] ?? (isset($data['role']) ? [$data['role']] : []);
+        unset($data['roles'], $data['role']);
+
+        $user = \App\Models\User::create($data);
+
+        if (!empty($roles)) {
+            $user->syncRoles($roles);
         }
 
-        DB::beginTransaction();
-        try {
-            $user = new User();
-            $user->fill($data);
+        app(\Spatie\Permission\PermissionRegistrar::class)->forgetCachedPermissions();
 
-            $user->save();
-
-            if (!empty($data['role'])) {
-                $user->syncRoles($data['role']);
-            } else {
-                if (! $user->roles()->exists()) {
-                    $user->syncRoles('Client');
-                }
-            }
-
-            DB::commit();
-            $user->load('roles');
-
-            event(new Registered($user));
-
-            return response()->json([
-                'message' => 'User created',
-                'user'    => new UserResource($user),
-            ], 201);
-        } catch (\Throwable $e) {
-            DB::rollBack();
-            report($e);
-            return response()->json(['message' => 'Unable to create user'], 422);
-        }
+        return new \App\Http\Resources\UserResource($user->fresh());
     }
 
-    public function updateRole(Request $request, User $user)
+    public function updateRole(\Illuminate\Http\Request $request, \App\Models\User $user)
     {
-        if (! $request->user()->hasRole('Admin')) {
-            return response()->json(['message' => 'Forbidden'], 403);
-        }
-
-        $data = $request->validate([
-            'role' => ['required', Rule::in(['Admin', 'Client'])],
+        $payload = $request->validate([
+            'role'    => ['sometimes', 'string', \Illuminate\Validation\Rule::exists('roles', 'name')],
+            'roles'   => ['sometimes', 'array'],
+            'roles.*' => ['string', \Illuminate\Validation\Rule::exists('roles', 'name')],
         ]);
 
-        if ($user->hasRole('Admin') && $data['role'] === 'Client') {
-            $otherAdmins = User::role('Admin')->where('id', '!=', $user->id)->count();
-            if ($otherAdmins === 0) {
-                return response()->json(['message' => 'Impossible de retirer le dernier Admin'], 422);
-            }
-        }
+        $roles = $payload['roles'] ?? (isset($payload['role']) ? [$payload['role']] : []);
+        $user->syncRoles($roles);
 
-        if ($request->user()->id === $user->id && $data['role'] === 'Client') {
-            $otherAdmins = User::role('Admin')->where('id', '!=', $user->id)->count();
-            if ($otherAdmins === 0) {
-                return response()->json(['message' => 'Vous ne pouvez pas vous retirer si vous êtes le seul Admin'], 422);
-            }
-        }
-
-        $user->syncRoles($data['role']);
-        $user->load('roles');
+        app(\Spatie\Permission\PermissionRegistrar::class)->forgetCachedPermissions();
 
         return response()->json([
-            'message' => 'Role updated',
-            'user'    => new UserResource($user),
+            'ok' => true,
+            'roles' => $user->getRoleNames()->values(),
+            'permissions' => $user->getAllPermissions()->pluck('name')->values(),
         ]);
     }
+
+
+    // public function updateRole(Request $request, User $user)
+    // {
+    //     if (! $request->user()->hasRole('Admin')) {
+    //         return response()->json(['message' => 'Forbidden'], 403);
+    //     }
+
+    //     $data = $request->validate([
+    //         'role' => ['required', Rule::in(['Admin', 'Client'])],
+    //     ]);
+
+    //     if ($user->hasRole('Admin') && $data['role'] === 'Client') {
+    //         $otherAdmins = User::role('Admin')->where('id', '!=', $user->id)->count();
+    //         if ($otherAdmins === 0) {
+    //             return response()->json(['message' => 'Impossible de retirer le dernier Admin'], 422);
+    //         }
+    //     }
+
+    //     if ($request->user()->id === $user->id && $data['role'] === 'Client') {
+    //         $otherAdmins = User::role('Admin')->where('id', '!=', $user->id)->count();
+    //         if ($otherAdmins === 0) {
+    //             return response()->json(['message' => 'Vous ne pouvez pas vous retirer si vous êtes le seul Admin'], 422);
+    //         }
+    //     }
+
+    //     $user->syncRoles($data['role']);
+    //     $user->load('roles');
+
+    //     return response()->json([
+    //         'message' => 'Role updated',
+    //         'user'    => new UserResource($user),
+    //     ]);
+    // }
 
     public function update(UserUpsertRequest $request, User $user)
     {
