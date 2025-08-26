@@ -14,6 +14,9 @@ use Symfony\Component\HttpFoundation\StreamedResponse;
 use App\Models\DemandeEvent;
 use Illuminate\Support\Arr;
 use App\Models\User;
+use App\Models\EnterpriseType;
+use App\Models\EnterpriseTypeOffer;
+
 
 
 class DemandesController extends Controller
@@ -120,12 +123,13 @@ class DemandesController extends Controller
         $rt = \App\Models\RequestType::where('slug', $typeSlug)->firstOrFail();
         if (!$rt->is_active) abort(422, 'Type désactivé');
 
-        $variantKey = $r->input('variant_key');
+        $variantKey = (string) $r->input('variant_key', '');
         $data = (array) $r->input('data', []);
         $first = (string) data_get($data, 'firstName', '');
         $last  = (string) data_get($data, 'lastName', '');
         $nameFromForm = trim($first . ' ' . $last);
 
+        // --------- Gestion COMPTE (inchangé)
         $user = $r->user();
         if ($user) {
             $changed = false;
@@ -171,7 +175,136 @@ class DemandesController extends Controller
             }
         }
 
-        // --- meta
+        // --------- Spécifique "creer-entreprise" (ajout minimal, n'impacte pas les autres types)
+        if ($rt->slug === 'creer-entreprise') {
+            if (!$variantKey) {
+                return response()->json([
+                    'message' => 'The variant key field is required.',
+                    'errors'  => ['variant_key' => ['The variant key field is required.']],
+                ], 422);
+            }
+
+            // On accepte plusieurs séparateurs: "::", ":", "|", ".", "/"
+            // $raw = preg_replace('/\s+/', '', $variantKey);
+            // $parts = preg_split('/(::|:|\||\.|\/)/', (string) $raw);
+            // $sigle = strtoupper((string) ($parts[0] ?? ''));
+            // $offerKey = (string) ($parts[1] ?? '');
+
+            // if ($sigle === '' || $offerKey === '') {
+            //     return response()->json([
+            //         'message' => 'Variante invalide pour ce type.',
+            //         'errors'  => ['variant_key' => ['Variante invalide pour ce type.']],
+            //     ], 422);
+            // }
+            $raw = preg_replace('/\s+/', '', (string) $variantKey);
+            $parts = preg_split('/(::|:|\||\.|\/)/', $raw);
+
+            // Si "SIGLE:offer_key", on garde tel quel.
+            // Si on a seulement "offer_key", on prend le sigle depuis data.enterprise_type_sigle.
+            $offerKey = (string) ($parts[1] ?? $parts[0] ?? '');
+            $sigle    = strtoupper((string) ($parts[1] ? $parts[0] : data_get($data, 'enterprise_type_sigle', '')));
+
+            if ($sigle === '' || $offerKey === '') {
+                return response()->json([
+                    'message' => 'Variante invalide pour ce type.',
+                    'errors'  => ['variant_key' => ['Variante invalide pour ce type.']],
+                ], 422);
+            }
+
+            $etype = EnterpriseType::where('sigle', $sigle)->first();
+            if (!$etype) {
+                return response()->json([
+                    'message' => 'Type d’entreprise inconnu.',
+                    'errors'  => ['variant_key' => ['Type d’entreprise inconnu.']],
+                ], 422);
+            }
+
+            $offer = EnterpriseTypeOffer::where('enterprise_type_id', $etype->id)
+                ->where('key', $offerKey)
+                ->where('is_active', true)
+                ->first();
+
+            if (!$offer) {
+                return response()->json([
+                    'message' => 'Variante invalide pour ce type.',
+                    'errors'  => ['variant_key' => ['Variante invalide pour ce type.']],
+                ], 422);
+            }
+
+            // Zone tarifaire fournie par le formulaire (par ex. "abidjan" / "interieur")
+            $zoneInput = strtolower((string) (
+                data_get($data, 'zone_tarif') ??
+                data_get($data, 'zone') ??
+                data_get($data, 'localisation') ??
+                data_get($data, 'creationLocation') ??
+                data_get($data, 'lieu_creation') ??
+                'abidjan'
+            ));
+
+            $isAbj = str_contains($zoneInput, 'abidjan') || str_contains($zoneInput, 'abj');
+
+            $pricingMode = (string) $offer->pricing_mode; // fixed | from | quote
+            $currency    = (string) ($offer->currency ?: 'XOF');
+
+            $amountFixed = null;
+            $priceDisplay = 'Sur devis';
+
+            if ($pricingMode === 'fixed') {
+                $amountFixed = $isAbj
+                    ? $offer->price_amount_abidjan
+                    : $offer->price_amount_interior;
+
+                if (is_numeric($amountFixed)) {
+                    $priceDisplay = number_format((float)$amountFixed, 0, ',', ' ') . ' ' . $currency;
+                } else {
+                    // si pas de montant défini, on bascule sur "Sur devis"
+                    $pricingMode = 'quote';
+                    $priceDisplay = 'Sur devis';
+                }
+            } elseif ($pricingMode === 'from') {
+                // "À partir de" = on prend le plus petit prix non null/numérique
+                $candidates = array_values(array_filter([
+                    is_numeric($offer->price_amount_abidjan) ? (float)$offer->price_amount_abidjan : null,
+                    is_numeric($offer->price_amount_interior) ? (float)$offer->price_amount_interior : null,
+                ], fn($v) => $v !== null));
+
+                if (!empty($candidates)) {
+                    $min = min($candidates);
+                    $priceDisplay = 'À partir de ' . number_format($min, 0, ',', ' ') . ' ' . $currency;
+                } else {
+                    $priceDisplay = 'À partir de —';
+                }
+            } else {
+                // quote
+                $priceDisplay = 'Sur devis';
+            }
+
+            // Normalise le variant_key stocké
+            $variantKey = $etype->sigle . ':' . $offer->key;
+
+            // Pousse un bloc selected_preset homogène dans $data (exigé côté front)
+            $data['selected_preset'] = [
+                'label'         => $etype->sigle . ' — ' . ($offer->title ?: $offer->key),
+                'price'         => is_numeric($amountFixed) ? (float)$amountFixed : null,
+                'price_display' => $priceDisplay,
+                'pricing_mode'  => $pricingMode,
+                'currency'      => $currency,
+                'variant_key'   => $variantKey,
+                'meta'          => [
+                    'sigle'      => $etype->sigle,
+                    'offer_key'  => $offer->key,
+                    'zone'       => $isAbj ? 'abidjan' : 'interieur',
+                    'subtitle'   => $offer->subtitle,
+                    'pill'       => $offer->pill,
+                    'delivery'   => [
+                        'min_days' => $offer->delivery_min_days,
+                        'max_days' => $offer->delivery_max_days,
+                    ],
+                ],
+            ];
+        }
+
+        // --- meta (inchangé)
         $meta = [
             'ip'        => $r->ip(),
             'ua'        => $r->userAgent(),
@@ -181,7 +314,7 @@ class DemandesController extends Controller
             $meta['selected_preset'] = data_get($data, 'selected_preset');
         }
 
-        // --- creation
+        // --- creation (inchangé, on garde currency du RequestType)
         $demande = \App\Models\Demande::create([
             'type_slug'    => $typeSlug,
             'type_version' => (int) ($rt->version ?? 1),
@@ -198,6 +331,7 @@ class DemandesController extends Controller
             'submitted_at' => now(),
         ]);
 
+        // --- upload fichiers (inchangé)
         if ($r->hasFile('files')) {
             foreach ($r->file('files') as $tag => $fileOrList) {
                 $files = is_array($fileOrList) ? $fileOrList : [$fileOrList];
@@ -242,6 +376,7 @@ class DemandesController extends Controller
             ] : null,
         ]);
     }
+
 
     public function show(Demande $demande)
     {

@@ -1,5 +1,11 @@
-// src/lib/auth.ts
-export type User = { id: number; name: string; email: string; roles?: string[] };
+import { http } from "@/lib/http";
+
+export type User = {
+  id: number;
+  name: string;
+  email: string;
+  roles?: string[];
+};
 
 export function getToken() {
   return localStorage.getItem("auth_token");
@@ -22,7 +28,6 @@ export function hasRole(role: string) {
   const u = getCurrentUser();
   return !!u?.roles?.includes(role);
 }
-
 
 export async function logout(): Promise<void> {
   try {

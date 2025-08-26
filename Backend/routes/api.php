@@ -16,6 +16,9 @@ use App\Http\Controllers\RegistrationController;
 use App\Http\Controllers\Admin\RegistrationAdminController;
 use App\Http\Controllers\DemandesController;
 use App\Http\Controllers\Admin\RequestTypeController;
+use App\Http\Controllers\EnterpriseTypesPublicController;
+use App\Http\Controllers\Admin\EnterpriseTypeController;
+use App\Http\Controllers\Admin\EnterpriseTypeOffersController;
 use App\Http\Controllers\Admin\RequestTypePublicController;
 
 
@@ -46,12 +49,22 @@ Route::prefix('v1')->group(function () {
     Route::get('/request-types/slug/{slug}', [RequestTypePublicController::class, 'showBySlug']);
 
 
+    // Détail d'un type de demande par slug (ex: creer-entreprise)
+    Route::get('/request-types/slug/{slug}', [RequestTypePublicController::class, 'showBySlug']);
+
+    // Types d’entreprise (catalogue public)
+    Route::get('/enterprise-types', [EnterpriseTypesPublicController::class, 'list']);
+    Route::get('/enterprise-types/{sigle}', [EnterpriseTypesPublicController::class, 'show']);
+    Route::get('/enterprise-types/{sigle}/offers', [EnterpriseTypesPublicController::class, 'offers']);
+
+
+
     //Log only
     Route::middleware('auth:sanctum')->group(function () {
         Route::get('auth/me',      [AuthController::class, 'me']);
         Route::post('auth/logout', [AuthController::class, 'logout']);
 
-        Route::post('/upload', [UploadController::class, 'store'])->name('upload.store');;
+        Route::post('/upload', [UploadController::class, 'store'])->name('upload.store');
 
         Route::patch('auth/update-me', [AuthController::class, 'updateMe']);
 
@@ -113,6 +126,37 @@ Route::prefix('v1')->group(function () {
             Route::put('admin/request-types/{requestType}', [RequestTypeController::class, 'update']);
             Route::patch('admin/request-types/{requestType}/toggle', [RequestTypeController::class, 'toggle']);
             Route::delete('admin/request-types/{requestType}', [RequestTypeController::class, 'destroy']);
+
+            Route::get('admin/enterprise-types/offers-counts', [\App\Http\Controllers\Admin\EnterpriseTypeController::class, 'offersCounts']);
+
+
+            Route::get('admin/enterprise-types/{id}/offers', [EnterpriseTypeOffersController::class, 'index'])
+                ->whereNumber('id')
+                ->name('enterprise-types.offers.index');
+
+            Route::post('admin/enterprise-types/{id}/offers', [EnterpriseTypeOffersController::class, 'store'])
+                ->whereNumber('id')
+                ->name('enterprise-types.offers.store');
+
+            Route::post('admin/enterprise-types/{id}/offers/reorder', [EnterpriseTypeOffersController::class, 'reorder'])
+                ->whereNumber('id')
+                ->name('enterprise-types.offers.reorder');
+
+            Route::patch('admin/enterprise-type-offers/{offer}', [EnterpriseTypeOffersController::class, 'update'])
+                ->whereNumber('offer')
+                ->name('enterprise-type-offers.update');
+
+            Route::delete('admin/enterprise-type-offers/{offer}', [EnterpriseTypeOffersController::class, 'destroy'])
+                ->whereNumber('offer')
+                ->name('enterprise-type-offers.destroy');
+
+            Route::post('admin/enterprise-type-offers/{offer}/publish', [EnterpriseTypeOffersController::class, 'publish'])
+                ->whereNumber('offer')
+                ->name('enterprise-type-offers.publish');
+
+            Route::post('admin/enterprise-type-offers/{offer}/unpublish', [EnterpriseTypeOffersController::class, 'unpublish'])
+                ->whereNumber('offer')
+                ->name('enterprise-type-offers.unpublish');
         });
 
         Route::middleware(['auth:sanctum', 'permission:rbac.manage'])->prefix('admin/rbac')->group(function () {

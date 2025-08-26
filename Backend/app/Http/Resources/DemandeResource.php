@@ -45,7 +45,6 @@ class DemandeResource extends JsonResource
                 'slug'    => $this->type_slug,
                 'version' => $this->type_version,
                 'name'    => $typeName,
-
                 'variant' => $variant,
             ],
 
@@ -104,11 +103,105 @@ class DemandeResource extends JsonResource
     }
 
     /**
-     * Construit un tableau "variant" lisible à partir de la config du RequestType.
-     * Priorité: config.variant_cards -> config.variants -> (fallback minimal).
+     * Construit un tableau "variant" lisible à partir de la config du RequestType
+     * ou, pour 'creer-entreprise', à partir de EnterpriseType + EnterpriseTypeOffer.
      */
     private function resolveVariantFromRequestType(\App\Models\RequestType $rt, string $key): ?array
     {
+        // --- Cas spécial "creer-entreprise"
+        if ($rt->slug === 'creer-entreprise') {
+            // key attendu: SIGLE:offre (on tolère aussi | . / ::)
+            $raw   = preg_replace('/\s+/', '', $key);
+            $parts = preg_split('/(::|:|\||\.|\/)/', (string) $raw);
+            $sigle = strtoupper((string) ($parts[0] ?? ''));
+            $offerKey = (string) ($parts[1] ?? '');
+
+            if (!$sigle || !$offerKey) {
+                // fallback ultra minimal
+                return [
+                    'key'      => $key,
+                    'title'    => $key,
+                    'features' => [],
+                    'active'   => true,
+                    'pill'     => null,
+                    'price'    => [
+                        'mode'     => 'quote',
+                        'amount'   => null,
+                        'currency' => (string) ($rt->currency ?? 'XOF'),
+                        'display'  => 'Sur devis',
+                    ],
+                ];
+            }
+
+            $etype = \App\Models\EnterpriseType::where('sigle', $sigle)->first();
+            $offer = $etype
+                ? \App\Models\EnterpriseTypeOffer::where('enterprise_type_id', $etype->id)
+                ->where('key', $offerKey)
+                ->first()
+                : null;
+
+            // Données choisies au moment de la création (si présentes)
+            $preset = (array) Arr::get($this->data ?? [], 'selected_preset', []);
+            $presetMode     = (string) Arr::get($preset, 'pricing_mode', '');
+            $presetAmount   = Arr::get($preset, 'price');
+            $presetCurrency = (string) (Arr::get($preset, 'currency', ''));
+
+            $mode     = $presetMode ?: (string) ($offer->pricing_mode ?? 'quote');
+            $currency = $presetCurrency ?: (string) ($offer->currency ?? $rt->currency ?? 'XOF');
+
+            // Calcul de l'affichage
+            $display = 'Sur devis';
+            $amount  = null;
+
+            if ($mode === 'fixed') {
+                // On privilégie le montant enregistré dans la demande (qui tient compte de la zone)
+                if (is_numeric($presetAmount)) {
+                    $amount = (float) $presetAmount;
+                    $display = number_format($amount, 0, ',', ' ') . ' ' . $currency;
+                } else {
+                    // fallback: si pas de preset, on n'a pas la zone → on reste prudent
+                    // et on affiche "Sur devis" pour éviter une info fausse.
+                    $display = 'Sur devis';
+                }
+            } elseif ($mode === 'from') {
+                // "À partir de" = min des prix définis sur l’offre
+                $candidates = array_values(array_filter([
+                    is_numeric($offer?->price_amount_abidjan) ? (float) $offer->price_amount_abidjan : null,
+                    is_numeric($offer?->price_amount_interior) ? (float) $offer->price_amount_interior : null,
+                ], fn($v) => $v !== null));
+
+                if (!empty($candidates)) {
+                    $min = min($candidates);
+                    $display = 'À partir de ' . number_format($min, 0, ',', ' ') . ' ' . $currency;
+                    $amount = $min;
+                } else {
+                    $display = 'À partir de —';
+                }
+            } else {
+                // quote
+                $display = 'Sur devis';
+            }
+
+            return [
+                'key'      => $sigle . ':' . $offerKey,
+                'title'    => $etype
+                    ? ($etype->sigle . ' — ' . ($offer?->title ?: strtoupper($offerKey)))
+                    : $sigle . ' — ' . strtoupper($offerKey),
+                'subtitle' => $offer?->subtitle,
+                'features' => array_values(array_filter((array) ($offer?->features_json ?? []))),
+                'active'   => (bool) ($offer?->is_active ?? true),
+                'pill'     => $offer?->pill,
+                'price'    => [
+                    'mode'     => $mode,
+                    'amount'   => is_numeric($amount) ? (float) $amount : null,
+                    'currency' => $currency,
+                    'display'  => $display,
+                ],
+                'cta'      => $offer?->cta,
+            ];
+        }
+
+        // --- Cas générique (config.variant_cards puis config.variants)
         $cards = Arr::get($rt->config, 'variant_cards', []);
         if (is_array($cards) && !empty($cards)) {
             $found = collect($cards)->firstWhere('key', $key);
@@ -159,12 +252,13 @@ class DemandeResource extends JsonResource
             }
         }
 
+        // Fallback minimal (corrigé: plus de $found hors scope)
         return [
             'key'      => $key,
             'title'    => $key,
             'features' => [],
             'active'   => true,
-            'pill'     => Arr::get($found, 'pill'),
+            'pill'     => null,
             'price'    => [
                 'mode'     => 'quote',
                 'amount'   => null,

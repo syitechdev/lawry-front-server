@@ -1,4 +1,4 @@
-import { useEffect, useState, useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Link, NavLink, useLocation, useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -28,8 +28,18 @@ import {
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { logout } from "@/lib/auth";
-import { http } from "@/lib/http";
-import { can, isSuperAdmin } from "@/lib/rbac";
+import {
+  listRequestTypes,
+  getUnreadDemandesCount,
+  getUnreadRegistrationsCount,
+  AdminRequestType,
+} from "@/services/adminRequestTypes";
+import {
+  dedupeBySlug,
+  sortTypes,
+  labelForRequestType,
+  pathForRequestType,
+} from "@/services/requestTypeRegistry";
 
 type RoleName = "Admin" | "Client" | string;
 
@@ -54,13 +64,6 @@ interface SidebarProps {
   userEmail?: string;
 }
 
-interface RequestType {
-  id: number;
-  name: string;
-  slug: string;
-  unread_count?: number;
-}
-
 type MenuItem = {
   icon: any;
   label: string;
@@ -80,42 +83,30 @@ const BackofficeSidebar = ({
   const navigate = useNavigate();
   const { toast } = useToast();
 
-  const [authToken, setAuthToken] = useState<string | null>(null);
+  // --- Auth local
   const [authUser, setAuthUser] = useState<CurrentUser | null>(null);
-
-  const readAuthFromStorage = () => {
+  useEffect(() => {
     try {
-      const token = localStorage.getItem("auth_token");
       const rawUser = localStorage.getItem("current_user");
-      setAuthToken(token);
       setAuthUser(rawUser ? JSON.parse(rawUser) : null);
     } catch {
       setAuthUser(null);
     }
-  };
-
-  useEffect(() => {
-    readAuthFromStorage();
-    const onStorage = (e: StorageEvent) => {
-      if (e.key === "auth_token" || e.key === "current_user")
-        readAuthFromStorage();
-    };
-    window.addEventListener("storage", onStorage);
-    return () => window.removeEventListener("storage", onStorage);
   }, []);
 
-  const detectedRole: "admin" | "client" = (() => {
-    const roles = (authUser?.roles || []).map((r) => String(r).toLowerCase());
-    if (
-      roles.includes("admin") ||
-      roles.includes("super admin") ||
-      roles.includes("administrator")
-    ) {
-      return "admin";
-    }
-    return "client";
-  })();
-  const role: "admin" | "client" = userRole ?? detectedRole;
+  const role: "admin" | "client" =
+    userRole ??
+    (() => {
+      const roles = (authUser?.roles || []).map((r) => String(r).toLowerCase());
+      if (
+        roles.includes("admin") ||
+        roles.includes("super admin") ||
+        roles.includes("administrator")
+      ) {
+        return "admin";
+      }
+      return "client";
+    })();
 
   const displayName = authUser?.name ?? userName;
   const displayEmail = authUser?.email ?? userEmail;
@@ -144,69 +135,95 @@ const BackofficeSidebar = ({
     }
   };
 
-  // ----------------- DYNAMIQUES -----------------
   const [unreadRegs, setUnreadRegs] = useState<number | null>(null);
   const [unreadDemandes, setUnreadDemandes] = useState<number | null>(null);
-  const [requestTypes, setRequestTypes] = useState<RequestType[]>([]);
+  const [requestTypes, setRequestTypes] = useState<AdminRequestType[]>([]);
 
-  const fetchUnreadRegistrationsCount = async () => {
+  const loadCounters = async () => {
     if (role !== "admin") return;
     try {
-      const { data } = await http.get("/admin/registrations/unread-count");
-      const c = Number(data?.count ?? 0);
-      setUnreadRegs(c > 0 ? c : null);
+      const [reg, dem] = await Promise.all([
+        getUnreadRegistrationsCount().catch(() => null),
+        getUnreadDemandesCount().catch(() => null),
+      ]);
+      setUnreadRegs(reg && reg > 0 ? reg : null);
+      setUnreadDemandes(dem && dem > 0 ? dem : null);
     } catch {
       setUnreadRegs(null);
-    }
-  };
-
-  const fetchUnreadDemandesCount = async () => {
-    if (role !== "admin") return;
-    try {
-      const { data } = await http.get("/admin/demandes/unread-count");
-      const c = Number(data?.unread ?? 0);
-      setUnreadDemandes(c > 0 ? c : null);
-    } catch {
       setUnreadDemandes(null);
     }
   };
 
-  const fetchRequestTypes = async () => {
+  const loadRequestTypes = async () => {
     if (role !== "admin") return;
     try {
-      const { data } = await http.get("/admin/request-types");
-      const list: RequestType[] = Array.isArray(data)
-        ? data
-        : Array.isArray((data as any)?.data)
-        ? (data as any).data
-        : [];
-      setRequestTypes(
-        list
-          .filter((t) => t?.slug && t?.name)
-          .map((t) => ({
-            id: t.id,
-            name: t.name,
-            slug: t.slug,
-            unread_count: t.unread_count,
-          }))
-      );
+      const list = await listRequestTypes();
+      setRequestTypes(list);
     } catch {
       setRequestTypes([]);
     }
   };
 
   useEffect(() => {
-    fetchUnreadRegistrationsCount();
-    fetchUnreadDemandesCount();
-    fetchRequestTypes();
-  }, [location.pathname, role, authToken]);
+    loadCounters();
+    loadRequestTypes();
+    //
+  }, [location.pathname, role]);
+
+  const requestTypeLinks = useMemo(() => {
+    const clean = dedupeBySlug(requestTypes);
+    return sortTypes(clean);
+  }, [requestTypes]);
+
+  const [openTypes, setOpenTypes] = useState<boolean>(
+    () =>
+      location.pathname.startsWith("/admin/types-entreprise") ||
+      location.pathname === "/admin/types"
+  );
+
+  const [openDemandes, setOpenDemandes] = useState<boolean>(
+    () =>
+      location.pathname.startsWith("/admin/demandes") ||
+      location.pathname.startsWith("/admin/types/")
+  );
 
   useEffect(() => {
-    const shouldOpen =
-      location.pathname.startsWith("/admin/demandes") ||
-      location.pathname.startsWith("/admin/types/");
-    setOpenDemandes(shouldOpen);
-  }, [location.pathname]);
+    try {
+      const raw = localStorage.getItem("bo_sidebar_open");
+      if (raw) {
+        const v = JSON.parse(raw);
+        if (typeof v?.dem === "boolean") setOpenDemandes(v.dem);
+        if (typeof v?.typ === "boolean") setOpenTypes(v.typ);
+      }
+    } catch {}
+    //
+  }, []);
+
+  useEffect(() => {
+    localStorage.setItem(
+      "bo_sidebar_open",
+      JSON.stringify({ dem: openDemandes, typ: openTypes })
+    );
+  }, [openDemandes, openTypes]);
+
+  const themeColors =
+    role === "admin"
+      ? {
+          primary: "bg-gradient-to-br from-red-900 via-red-800 to-red-900",
+          secondary: "bg-red-100 text-red-800 border-red-200",
+          hover: "hover:bg-red-100",
+          activeLink:
+            "bg-gradient-to-r from-red-100 to-red-50 text-red-900 border-r-4 border-red-800 shadow-sm",
+          normalLink: "text-gray-700 hover:bg-red-50 hover:text-red-800",
+        }
+      : {
+          primary: "bg-gradient-to-br from-red-700 via-red-600 to-red-700",
+          secondary: "bg-red-100 text-red-700 border-red-200",
+          hover: "hover:bg-red-50",
+          activeLink:
+            "bg-gradient-to-r from-red-100 to-red-50 text-red-800 border-r-4 border-red-600 shadow-sm",
+          normalLink: "text-gray-700 hover:bg-red-50 hover:text-red-700",
+        };
 
   const adminMenuItems: MenuItem[] = useMemo(
     () => [
@@ -264,14 +281,12 @@ const BackofficeSidebar = ({
         path: "/admin/categories",
         badge: null,
       },
-      { icon: Tags, label: "Types", path: "/admin/types", badge: null },
-      // ⬇️ Paramètres visible si Admin OU permission rbac.manage
+      // { icon: Tags, label: "Types", path: "/admin/types", badge: null },
       {
         icon: Settings,
         label: "Paramètres",
         path: "/admin/parametres",
         badge: null,
-        permission: "rbac.manage",
       },
     ],
     [unreadRegs, unreadDemandes]
@@ -308,51 +323,7 @@ const BackofficeSidebar = ({
 
   const menuItems = role === "admin" ? adminMenuItems : clientMenuItems;
 
-  const filteredMenuItems = useMemo(
-    () =>
-      menuItems.filter((it) =>
-        it.permission
-          ? isSuperAdmin() ||
-            can(it.permission as string | string[], it.mode || "any")
-          : true
-      ),
-    [menuItems]
-  );
-
   const isActiveLink = (path: string) => location.pathname === path;
-
-  const [openTypes, setOpenTypes] = useState<boolean>(
-    () =>
-      location.pathname.startsWith("/admin/types-entreprise") ||
-      location.pathname === "/admin/types"
-  );
-
-  const [openDemandes, setOpenDemandes] = useState<boolean>(
-    () =>
-      location.pathname.startsWith("/admin/demandes") ||
-      location.pathname.startsWith("/admin/types/")
-  );
-
-  const themeColors =
-    role === "admin"
-      ? {
-          primary: "bg-gradient-to-br from-red-900 via-red-800 to-red-900",
-          secondary: "bg-red-100 text-red-800 border-red-200",
-          accent: "bg-red-50 text-red-900",
-          hover: "hover:bg-red-100",
-          activeLink:
-            "bg-gradient-to-r from-red-100 to-red-50 text-red-900 border-r-4 border-red-800 shadow-sm",
-          normalLink: "text-gray-700 hover:bg-red-50 hover:text-red-800",
-        }
-      : {
-          primary: "bg-gradient-to-br from-red-700 via-red-600 to-red-700",
-          secondary: "bg-red-100 text-red-700 border-red-200",
-          accent: "bg-red-50 text-red-800",
-          hover: "hover:bg-red-50",
-          activeLink:
-            "bg-gradient-to-r from-red-100 to-red-50 text-red-800 border-r-4 border-red-600 shadow-sm",
-          normalLink: "text-gray-700 hover:bg-red-50 hover:text-red-700",
-        };
 
   return (
     <div
@@ -364,10 +335,6 @@ const BackofficeSidebar = ({
       <div
         className={`p-6 ${themeColors.primary} text-white relative overflow-hidden flex-shrink-0`}
       >
-        <div className="absolute inset-0 opacity-10">
-          <div className="absolute inset-0 bg-gradient-to-br from-white via-transparent to-transparent"></div>
-        </div>
-
         <div className="relative z-10">
           <div className="flex items-center justify-between">
             {!isCollapsed && (
@@ -441,17 +408,12 @@ const BackofficeSidebar = ({
       <ScrollArea className="flex-1 px-4">
         <nav className="pb-4">
           <div className="space-y-2">
-            {filteredMenuItems.map((item, index) => {
-              const Icon = item.icon as any;
-
-              // "Demandes" (sous-menu)
+            {menuItems.map((item, index) => {
+              // Groupe "Demandes"
               if (role === "admin" && item.label === "Demandes") {
                 const activeParent =
                   location.pathname.startsWith("/admin/demandes") ||
                   location.pathname.startsWith("/admin/types/");
-
-                const parentBadge = item.badge;
-
                 return (
                   <div key={`demandes-${index}`} className="space-y-1">
                     <button
@@ -467,7 +429,7 @@ const BackofficeSidebar = ({
                       }`}
                     >
                       <div
-                        className={`p-2 rounded-lg transition-colors ${
+                        className={`p-2 rounded-lg ${
                           activeParent
                             ? "bg-white shadow-sm"
                             : "group-hover:bg-red-100"
@@ -490,12 +452,12 @@ const BackofficeSidebar = ({
                                 openDemandes ? "rotate-180" : ""
                               }`}
                             />
-                            {parentBadge && (
+                            {item.badge && (
                               <Badge
                                 variant="secondary"
                                 className="bg-red-800 text-white text-xs px-2"
                               >
-                                {parentBadge}
+                                {item.badge}
                               </Badge>
                             )}
                           </div>
@@ -515,31 +477,23 @@ const BackofficeSidebar = ({
                         >
                           <FileText className="h-4 w-4 mr-2" />
                           <span>Liste demandes</span>
-                          {parentBadge && (
+                          {item.badge && (
                             <Badge
                               variant="secondary"
                               className="ml-auto bg-red-800 text-white text-[10px] px-1.5"
                             >
-                              {parentBadge}
+                              {item.badge}
                             </Badge>
                           )}
                         </Link>
 
-                        {requestTypes.map((t) => {
-                          const derivedSlug = (t.slug || t.name || "")
-                            .toLowerCase()
-                            .normalize("NFD")
-                            .replace(/\p{Diacritic}/gu, "")
-                            .replace(/[^a-z0-9]+/g, "-")
-                            .replace(/^-+|-+$/g, "");
-
-                          const href = `/admin/types/${encodeURIComponent(
-                            derivedSlug
-                          )}`;
-
+                        {/* Liens par type (pinnés + triés) */}
+                        {requestTypeLinks.map((t) => {
+                          const href = pathForRequestType(t);
+                          const label = labelForRequestType(t);
                           return (
                             <NavLink
-                              key={derivedSlug}
+                              key={t.slug}
                               to={href}
                               className={({ isActive }) =>
                                 `flex items-center px-3 py-2 rounded-lg text-sm transition-all duration-200 ${
@@ -550,14 +504,10 @@ const BackofficeSidebar = ({
                               }
                             >
                               <Tags className="h-4 w-4 mr-2" />
-                              <span className="truncate">{t.name}</span>
-
+                              <span className="truncate">{label}</span>
                               {typeof t.unread_count === "number" &&
                                 t.unread_count > 0 && (
-                                  <Badge
-                                    variant="secondary"
-                                    className="ml-auto bg-red-800 text-white text-[10px] px-1.5"
-                                  >
+                                  <Badge className="ml-auto bg-red-800 text-white text-[10px] px-1.5">
                                     {t.unread_count}
                                   </Badge>
                                 )}
@@ -570,73 +520,72 @@ const BackofficeSidebar = ({
                 );
               }
 
-              // "Types" (sous-menu)
-              if (role === "admin" && item.label === "Types") {
-                const activeParent =
-                  location.pathname.startsWith("/admin/types-entreprise") ||
-                  location.pathname === "/admin/types";
+              // // Groupe "Types" (gestion des types d’entreprise)
+              // if (role === "admin" && item.label === "Types") {
+              //   const activeParent =
+              //     location.pathname.startsWith("/admin/types-entreprise") ||
+              //     location.pathname === "/admin/types";
+              //   return (
+              //     <div key={`types-${index}`} className="space-y-1">
+              //       <button
+              //         type="button"
+              //         onClick={() => {
+              //           if (isCollapsed) setIsCollapsed(false);
+              //           setOpenTypes((v) => !v);
+              //         }}
+              //         className={`w-full flex items-center space-x-4 px-4 py-3 rounded-xl transition-all duration-200 group ${
+              //           activeParent
+              //             ? themeColors.activeLink
+              //             : themeColors.normalLink
+              //         }`}
+              //       >
+              //         <div
+              //           className={`p-2 rounded-lg ${
+              //             activeParent
+              //               ? "bg-white shadow-sm"
+              //               : "group-hover:bg-red-100"
+              //           }`}
+              //         >
+              //           <Tags
+              //             className={`h-5 w-5 ${
+              //               activeParent ? "text-red-800" : ""
+              //             }`}
+              //           />
+              //         </div>
+              //         {!isCollapsed && (
+              //           <>
+              //             <span className="font-semibold text-sm">
+              //               Entreprise
+              //             </span>
+              //             <ChevronDown
+              //               className={`h-4 w-4 transition-transform ${
+              //                 openTypes ? "rotate-180" : ""
+              //               }`}
+              //             />
+              //           </>
+              //         )}
+              //       </button>
 
-                return (
-                  <div key={`types-${index}`} className="space-y-1">
-                    <button
-                      type="button"
-                      onClick={() => {
-                        if (isCollapsed) setIsCollapsed(false);
-                        setOpenTypes((v) => !v);
-                      }}
-                      className={`w-full flex items-center space-x-4 px-4 py-3 rounded-xl transition-all duration-200 group ${
-                        activeParent
-                          ? themeColors.activeLink
-                          : themeColors.normalLink
-                      }`}
-                    >
-                      <div
-                        className={`p-2 rounded-lg transition-colors ${
-                          activeParent
-                            ? "bg-white shadow-sm"
-                            : "group-hover:bg-red-100"
-                        }`}
-                      >
-                        <Tags
-                          className={`h-5 w-5 ${
-                            activeParent ? "text-red-800" : ""
-                          }`}
-                        />
-                      </div>
-                      {!isCollapsed && (
-                        <>
-                          <span className="font-semibold text-sm">
-                            Entreprise
-                          </span>
-                          <ChevronDown
-                            className={`h-4 flex-1 w-4 transition-transform ${
-                              openTypes ? "rotate-180" : ""
-                            }`}
-                          />
-                        </>
-                      )}
-                    </button>
-
-                    {!isCollapsed && openTypes && (
-                      <div className="ml-12 mt-1 space-y-1">
-                        <Link
-                          to="/admin/types-entreprise"
-                          className={`flex items-center px-3 py-2 rounded-lg text-sm transition-all duration-200 ${
-                            location.pathname.startsWith(
-                              "/admin/types-entreprise"
-                            )
-                              ? "bg-red-50 text-red-800"
-                              : "text-gray-700 hover:bg-red-50 hover:text-red-800"
-                          }`}
-                        >
-                          <Building2 className="h-4 w-4 mr-2" />
-                          <span>Types d’entreprise</span>
-                        </Link>
-                      </div>
-                    )}
-                  </div>
-                );
-              }
+              //       {/* {!isCollapsed && openTypes && (
+              //         <div className="ml-12 mt-1 space-y-1">
+              //           <Link
+              //             to="/admin/types-entreprise"
+              //             className={`flex items-center px-3 py-2 rounded-lg text-sm transition-all duration-200 ${
+              //               location.pathname.startsWith(
+              //                 "/admin/types-entreprise"
+              //               )
+              //                 ? "bg-red-50 text-red-800"
+              //                 : "text-gray-700 hover:bg-red-50 hover:text-red-800"
+              //             }`}
+              //           >
+              //             <Building2 className="h-4 w-4 mr-2" />
+              //             <span>Types d’entreprise</span>
+              //           </Link>
+              //         </div>
+              //       )} */}
+              //     </div>
+              //   );
+              // }
 
               // Liens standards
               const active = isActiveLink(item.path);
@@ -649,7 +598,7 @@ const BackofficeSidebar = ({
                   }`}
                 >
                   <div
-                    className={`p-2 rounded-lg transition-colors ${
+                    className={`p-2 rounded-lg ${
                       active ? "bg-white shadow-sm" : "group-hover:bg-red-100"
                     }`}
                   >
@@ -685,7 +634,7 @@ const BackofficeSidebar = ({
           <div className="mb-4">
             <div className="flex items-center justify-between text-sm text-gray-600 mb-2">
               <span className="flex items-center">
-                <div className="w-2 h-2 bg-green-500 rounded-full mr-2 animate-pulse"></div>
+                <div className="w-2 h-2 bg-green-500 rounded-full mr-2 animate-pulse" />
                 Connexion sécurisée
               </span>
               <Shield className="h-4 w-4" />

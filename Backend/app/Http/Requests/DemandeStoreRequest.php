@@ -56,7 +56,8 @@ class DemandeStoreRequest extends FormRequest
             'variant_key' => [
                 'nullable',
                 'string',
-                Rule::requiredIf(fn() => $type === 'rediger-contrat'),
+                Rule::requiredIf(fn() => in_array($type, ['rediger-contrat', 'creer-entreprise', 'conseil'], true)),
+
             ],
 
             'urgent'      => ['sometimes', 'boolean'],

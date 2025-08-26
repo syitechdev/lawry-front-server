@@ -1,5 +1,5 @@
-// src/pages/admin/AdminEnterpriseTypes.tsx
 import { useEffect, useState, useMemo } from "react";
+import { Link } from "react-router-dom";
 import { Toaster, toast } from "sonner";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -35,6 +35,15 @@ export default function AdminEnterpriseTypes() {
   }, []);
 
   const onDelete = async (it: EnterpriseType) => {
+    const count = it.offersCount ?? 0;
+    if (count > 0) {
+      toast.info(
+        `Suppression impossible : ce type contient ${count} ${
+          count > 1 ? "offres" : "offre"
+        }.`
+      );
+      return;
+    }
     if (!confirm(`Supprimer le type "${it.sigle}" ?`)) return;
     try {
       await enterpriseTypes.remove(it.id);
@@ -46,7 +55,13 @@ export default function AdminEnterpriseTypes() {
     }
   };
 
-  const stats = useMemo(() => ({ total: items.length }), [items]);
+  const stats = useMemo(
+    () => ({
+      total: items.length,
+      totalOffers: items.reduce((sum, it) => sum + (it.offersCount ?? 0), 0),
+    }),
+    [items]
+  );
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-gray-50 via-red-50/30 to-gray-50">
@@ -84,6 +99,7 @@ export default function AdminEnterpriseTypes() {
             </div>
           </div>
         </div>
+
         {/* Statistiques simples */}
         <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
           <Card>
@@ -92,6 +108,15 @@ export default function AdminEnterpriseTypes() {
                 {stats.total}
               </div>
               <p className="text-sm text-gray-600">Types totaux</p>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardContent className="p-4">
+              <div className="text-2xl font-bold text-blue-600">
+                {stats.totalOffers}
+              </div>
+              <p className="text-sm text-gray-600">Offres (tous types)</p>
             </CardContent>
           </Card>
         </div>
@@ -106,56 +131,95 @@ export default function AdminEnterpriseTypes() {
             <div className="text-gray-500">Aucun type pour le moment.</div>
           ) : (
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 mb-8">
-              {items.map((it) => (
-                <Card key={it.id} className="relative">
-                  <CardHeader className="pb-2">
-                    <div className="flex items-start justify-between">
-                      <Badge className="bg-red-50 text-red-900 border border-red-200">
-                        <Building2 className="h-3 w-3 mr-1" />
-                        {it.sigle}
-                      </Badge>
-                    </div>
-                  </CardHeader>
+              {items.map((it) => {
+                const count = it.offersCount ?? 0;
+                const hasOffers = count > 0;
 
-                  <CardContent>
-                    <div className="text-lg font-semibold text-gray-900 mb-1">
-                      {it.signification}
-                    </div>
-                    <p className="text-sm text-gray-600 min-h-[48px]">
-                      {it.description || "—"}
-                    </p>
+                return (
+                  <Card key={it.id} className="relative">
+                    {/* Badge OFFRES en haut-droite */}
+                    <Badge
+                      variant="secondary"
+                      className="absolute top-3 right-3 border border-gray-200"
+                      title={`${count} ${count > 1 ? "offres" : "offre"}`}
+                    >
+                      {count} {count > 1 ? "offres" : "offre"}
+                    </Badge>
 
-                    <div className="flex gap-2 mt-6">
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        className="flex-1"
-                        onClick={() => {
-                          setEditing(it);
-                          setCreatingOpen(false);
-                        }}
-                      >
-                        <Edit className="h-3 w-3 mr-1" />
-                        Modifier
-                      </Button>
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => onDelete(it)}
-                        className="text-red-600 hover:bg-red-50"
-                      >
-                        <Trash2 className="h-3 w-3" />
-                      </Button>
-                    </div>
-                  </CardContent>
-                </Card>
-              ))}
+                    <CardHeader className="pb-2">
+                      <div className="flex items-start justify-between">
+                        <Badge className="bg-red-50 text-red-900 border border-red-200">
+                          <Building2 className="h-3 w-3 mr-1" />
+                          {it.sigle}
+                        </Badge>
+                      </div>
+                    </CardHeader>
+
+                    <CardContent>
+                      <div className="text-lg font-semibold text-gray-900 mb-1">
+                        {it.signification}
+                      </div>
+                      <p className="text-sm text-gray-600 min-h-[48px]">
+                        {it.description || "—"}
+                      </p>
+
+                      <div className="flex gap-2 mt-6">
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="flex-1"
+                          onClick={() => {
+                            setEditing(it);
+                            setCreatingOpen(false);
+                          }}
+                        >
+                          <Edit className="h-3 w-3 mr-1" />
+                          Modifier
+                        </Button>
+
+                        <Link
+                          to={`/admin/types-entreprise/${encodeURIComponent(
+                            it.sigle
+                          )}/offres`}
+                          className="flex-1"
+                        >
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            className="w-full"
+                          >
+                            Gérer les offres
+                          </Button>
+                        </Link>
+
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => onDelete(it)}
+                          className={`text-red-600 ${
+                            hasOffers
+                              ? "opacity-50 cursor-not-allowed pointer-events-none"
+                              : "hover:bg-red-50"
+                          }`}
+                          title={
+                            hasOffers
+                              ? "Impossible de supprimer : ce type contient des offres"
+                              : "Supprimer ce type"
+                          }
+                          disabled={hasOffers}
+                        >
+                          <Trash2 className="h-3 w-3" />
+                        </Button>
+                      </div>
+                    </CardContent>
+                  </Card>
+                );
+              })}
             </div>
           )}
         </div>
       </div>
 
-      {/* Modal création/édition */}
       <EnterpriseTypeEditForm
         open={creatingOpen || !!editing}
         item={editing}

@@ -36,7 +36,8 @@ export type RequestType = {
   } | null;
 };
 
-const base = "/admin/request-types";
+const baseAdmin = "/admin/request-types";
+const basePublic = "/request-types"; // route publique existante
 
 function extractList(payload: any): RequestType[] {
   if (Array.isArray(payload)) return payload as RequestType[];
@@ -50,30 +51,42 @@ function extractList(payload: any): RequestType[] {
 }
 
 async function list(params?: Record<string, any>): Promise<RequestType[]> {
-  const { data } = await http.get(base, { params });
+  const { data } = await http.get(baseAdmin, { params });
   return extractList(data);
 }
 
 async function get(id: number): Promise<RequestType> {
-  const { data } = await http.get(`${base}/${id}`);
+  const { data } = await http.get(`${baseAdmin}/${id}`);
   return data as RequestType;
 }
 
 async function getBySlug(slug: string): Promise<RequestType | null> {
+  // 1) endpoint PUBLIC (disponible dans tes routes)
   try {
-    const { data } = await http.get(`${base}/slug/${encodeURIComponent(slug)}`);
+    const { data } = await http.get(
+      `${basePublic}/slug/${encodeURIComponent(slug)}`
+    );
     if (data?.slug === slug) return data as RequestType;
   } catch {}
 
+  // 2) si tu ajoutes plus tard une route ADMIN /admin/request-types/slug/{slug}
   try {
-    const { data } = await http.get(base, { params: { slug } });
+    const { data } = await http.get(
+      `${baseAdmin}/slug/${encodeURIComponent(slug)}`
+    );
+    if (data?.slug === slug) return data as RequestType;
+  } catch {}
+
+  // 3) fallback admin via ?slug=
+  try {
+    const { data } = await http.get(baseAdmin, { params: { slug } });
     const arr = extractList(data);
     if (arr.length) {
       return arr.find((r) => r.slug === slug) ?? arr[0];
     }
   } catch {}
 
-  // 3) fallback : liste + filtre front
+  // 4) dernier fallback : liste + filtre front
   const items = await list();
   return items.find((r) => r.slug === slug) ?? null;
 }
@@ -83,7 +96,7 @@ async function putConfig(
   config: Record<string, any>
 ): Promise<RequestType> {
   try {
-    const res = await http.patch(`${base}/${id}/config`, { config });
+    const res = await http.patch(`${baseAdmin}/${id}/config`, { config });
     const data = res?.data;
     if (data && Object.keys(data).length > 0) return data as RequestType;
     return await get(id);
@@ -108,7 +121,7 @@ async function putConfig(
     delete payload.price_display;
     delete payload.locked;
 
-    const { data } = await http.put(`${base}/${id}`, payload, {
+    const { data } = await http.put(`${baseAdmin}/${id}`, payload, {
       headers: { "Content-Type": "application/ld+json" },
     });
     return data as RequestType;

@@ -10,6 +10,8 @@ use Illuminate\Auth\Events\Login;
 use Illuminate\Auth\Events\Authenticated;
 use Illuminate\Auth\Events\Registered;
 use App\Listeners\SendWelcomeEmail;
+use Illuminate\Database\Eloquent\Relations\Relation;
+
 
 
 class AppServiceProvider extends ServiceProvider
@@ -61,5 +63,10 @@ class AppServiceProvider extends ServiceProvider
                 $user->forceFill(['last_activity_at' => now()])->saveQuietly();
             }
         });
+
+        Relation::morphMap([
+            'formation' => \App\Models\Formation::class,
+            'demande'   => \App\Models\Demande::class,
+        ]);
     }
 }

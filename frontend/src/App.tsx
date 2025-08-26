@@ -79,6 +79,7 @@ import AdminRegistrationDetail from "@/pages/admin/AdminRegistrationDetail";
 import DemandesList from "@/pages/admin/DemandesList";
 import AdminRedigerContrat from "./pages/admin/types/AdminRedigerContrat";
 import AdminSefaireConseiler from "@/pages/admin/types/AdminSefaireConseiler";
+import AdminEnterpriseTypeOffers from "@/pages/admin/types/AdminEnterpriseTypeOffers";
 
 // Client
 import ClientCommandes from "./pages/client/ClientCommandes";
@@ -314,6 +315,10 @@ const App = () => (
                   path="/admin/types/se-faire-conseiller"
                   element={<AdminSefaireConseiler />}
                 />
+                <Route
+                  path="/admin/types-entreprise/:sigle/offres"
+                  element={<AdminEnterpriseTypeOffers />}
+                />
 
                 <Route
                   path="/admin/inscriptions"
@@ -322,6 +327,10 @@ const App = () => (
                 <Route path="/admin/plans" element={<AdminPlans />} />
                 <Route
                   path="/admin/types-entreprise"
+                  element={<AdminEnterpriseTypes />}
+                />
+                <Route
+                  path="/admin/types/creer-entreprise"
                   element={<AdminEnterpriseTypes />}
                 />
                 <Route path="/admin/parametres" element={<AdminParametres />} />

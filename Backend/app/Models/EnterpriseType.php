@@ -36,4 +36,9 @@ class EnterpriseType extends Model
             if (!empty($t->sigle)) $t->sigle = mb_strtoupper($t->sigle);
         });
     }
+
+    public function offers()
+    {
+        return $this->hasMany(EnterpriseTypeOffer::class, 'enterprise_type_id');
+    }
 }
