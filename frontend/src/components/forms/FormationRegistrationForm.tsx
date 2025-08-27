@@ -45,6 +45,9 @@ import {
   markRegisteredLocal,
 } from "@/services/registrations";
 
+import { initPayment } from "@/services/paymentApi";
+import { autoPost } from "@/utils/autoPost";
+
 const formationRegistrationSchema = z.object({
   firstName: z.string().min(1, "Prénom requis"),
   lastName: z.string().min(1, "Nom requis"),
@@ -94,6 +97,12 @@ const FormationRegistrationForm: React.FC<FormationRegistrationFormProps> = ({
     if (t.includes("en ligne")) return "distanciel";
     return "presentiel";
   }, [selectedFormation?.type]);
+
+  //Paiement
+  const shouldPayNow = useMemo(
+    () => (selectedFormation?.priceNumber ?? 0) > 0,
+    [selectedFormation?.priceNumber]
+  );
 
   const isHybrid = (selectedFormation?.type || "")
     .toLowerCase()
@@ -204,16 +213,61 @@ const FormationRegistrationForm: React.FC<FormationRegistrationFormProps> = ({
           : `email:${data.email.toLowerCase()}`;
       markRegisteredLocal(selectedFormation.id, key);
 
-      const isQuote =
-        /devis/i.test(selectedFormation.price) ||
-        selectedFormation.priceNumber <= 0;
+      // const isQuote =
+      //   /devis/i.test(selectedFormation.price) ||
+      //   selectedFormation.priceNumber <= 0;
 
-      toast({
-        title: isQuote ? "Demande enregistrée" : "Inscription enregistrée",
-        description: isQuote
-          ? "Votre demande a été prise en compte."
-          : "Votre inscription a été enregistrée.",
-      });
+      // toast({
+      //   title: isQuote ? "Demande enregistrée" : "Inscription enregistrée",
+      //   description: isQuote
+      //     ? "Votre demande a été prise en compte."
+      //     : "Votre inscription a été enregistrée.",
+      // });
+      const isQuote = !shouldPayNow;
+
+      if (isQuote) {
+        toast({
+          title: "Demande enregistrée",
+          description: "Votre demande a été prise en compte.",
+        });
+        onBack();
+        return;
+      }
+
+      try {
+        const customer = isAuthenticated()
+          ? undefined
+          : {
+              email: data.email,
+              firstName: data.firstName,
+              lastName: data.lastName,
+              phone: data.phone,
+            };
+
+        const res = await initPayment({
+          type: "formation",
+          id: selectedFormation.id,
+          customer,
+        });
+
+        autoPost(
+          res.action,
+          res.fields,
+          (res.method as "GET" | "POST") || "GET"
+        );
+        return; // navigation vers PaiementPro
+      } catch (e: any) {
+        toast({
+          title: "Paiement indisponible",
+          description:
+            e?.payload?.message ||
+            e?.payload?.error ||
+            e?.message ||
+            "Impossible d'initier le paiement.",
+          variant: "destructive",
+        });
+        // l’inscription est déjà enregistrée ; on reste sur la page pour réessayer
+      }
 
       onBack();
     } catch (e: any) {

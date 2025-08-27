@@ -3,9 +3,14 @@
 namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
+use App\Contracts\PayableContract;
+use App\Traits\IsPayable;
+use App\Models\Payment;
 
-class Demande extends Model
+class Demande extends Model implements PayableContract
 {
+    use IsPayable;
+
     protected $fillable = [
         'ref',
         'type_slug',
@@ -64,7 +69,6 @@ class Demande extends Model
         return "DEM-{$year}-{$seq}";
     }
 
-    // 🔗 Relations alignées sur tes colonnes
     public function author()
     {
         return $this->belongsTo(\App\Models\User::class, 'created_by');
@@ -75,10 +79,6 @@ class Demande extends Model
         return $this->belongsTo(\App\Models\User::class, 'assigned_to');
     }
 
-    // public function type()
-    // {
-    //     return $this->belongsTo(\App\Models\RequestType::class, 'type_id');
-    // }
     public function type()
     {
         return $this->belongsTo(\App\Models\RequestType::class, 'type_slug', 'slug');
@@ -104,7 +104,6 @@ class Demande extends Model
         return $this->hasMany(\App\Models\DemandeMessage::class)->latest('id');
     }
 
-
     public function scopeOfType($q, string $slug)
     {
         return $q->where('type_slug', $slug);
@@ -113,5 +112,35 @@ class Demande extends Model
     public function scopeUnread($q)
     {
         return $q->where('is_read', false);
+    }
+
+    public function payableLabel(): string
+    {
+        $ref = $this->ref ?: ('#' . $this->getKey());
+        return "Demande: {$ref} ({$this->type_slug})";
+    }
+
+    public function payableAmountXof(): int
+    {
+        $d = $this->data ?? [];
+        foreach (['amount', 'price_cfa', 'montant', 'total_amount', 'total'] as $k) {
+            $v = data_get($d, $k);
+            if (is_numeric($v)) {
+                return (int) round((float) $v);
+            }
+        }
+        if (is_numeric($this->paid_amount) && (float) $this->paid_amount > 0) {
+            return (int) round((float) $this->paid_amount);
+        }
+        throw new \RuntimeException("Aucun montant trouvé pour Demande {$this->ref}.");
+    }
+
+    public function onPaymentSucceeded(Payment $payment): void
+    {
+        $this->forceFill([
+            'paid_status' => 'paid',
+            'paid_amount' => (float) $payment->amount,
+            'currency'    => $payment->currency ?: ($this->currency ?? 'XOF'),
+        ])->save();
     }
 }

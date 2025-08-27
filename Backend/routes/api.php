@@ -20,7 +20,7 @@ use App\Http\Controllers\EnterpriseTypesPublicController;
 use App\Http\Controllers\Admin\EnterpriseTypeController;
 use App\Http\Controllers\Admin\EnterpriseTypeOffersController;
 use App\Http\Controllers\Admin\RequestTypePublicController;
-
+use App\Http\Controllers\PaymentController;
 
 
 
@@ -57,6 +57,10 @@ Route::prefix('v1')->group(function () {
     Route::get('/enterprise-types/{sigle}', [EnterpriseTypesPublicController::class, 'show']);
     Route::get('/enterprise-types/{sigle}/offers', [EnterpriseTypesPublicController::class, 'offers']);
 
+    //Paiement
+    Route::post('/pay/{type}/{id}', [PaymentController::class, 'init'])->name('payments.init');
+    Route::post('/pay/webhook/paiementpro', [PaymentController::class, 'webhook'])->name('payments.webhook');
+    Route::get('/pay/return', [PaymentController::class, 'return'])->name('payments.return');
 
 
     //Log only

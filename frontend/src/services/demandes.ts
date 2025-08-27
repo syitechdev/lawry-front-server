@@ -137,3 +137,141 @@ export async function changeStatus(ref: string, status: string, note?: string) {
     note,
   });
 }
+
+export type Demande = {
+  id: number;
+  ref: string;
+  paid_status?: "unpaid" | "pending" | "succeeded" | "failed";
+  paid_amount?: number | null;
+  currency?: string;
+  data?: any;
+  meta?: any;
+  created_at?: string;
+  updated_at?: string;
+};
+
+export type CreateDemandePayload = {
+  type_slug: string;
+  variant_key?: string | null;
+  paid_status?: "unpaid" | "pending" | "succeeded" | "failed";
+  currency?: string;
+  data?: any;
+  meta?: any;
+};
+
+export async function createDemande(
+  payload: CreateDemandePayload
+): Promise<Demande> {
+  const { data } = await http.post("/demandes", payload, {
+    headers: { "Content-Type": "application/json", Accept: "application/json" },
+  });
+  return data as Demande;
+}
+
+/** Construit le payload pour une demande "contrat" à partir du formulaire */
+export function buildContractPayload(
+  formData: {
+    contractType: string;
+    party1Type: string;
+    party1Name: string;
+    party1Address: string;
+    party1Id: string;
+    party1Representative?: string | null;
+    party1Phone: string;
+    party1Email: string;
+
+    party2Type: string;
+    party2Name: string;
+    party2Address: string;
+    party2Id: string;
+    party2Representative?: string | null;
+    party2Phone: string;
+    party2Email: string;
+
+    contractObject: string;
+
+    party1Obligations: string;
+    party2Obligations: string;
+
+    amount: string;
+    paymentTerms: string;
+    latePenalties?: string | null;
+
+    startDate: string;
+    duration: string;
+    terminationConditions?: string | null;
+
+    isConfidential: boolean;
+    confidentialityClause?: string | null;
+    ipTransfer: boolean;
+    ipTerms?: string | null;
+
+    warranties?: string | null;
+    liabilityLimitation?: string | null;
+
+    applicableLaw: string;
+    disputeResolution: string[];
+  },
+  selectedContractType?: { id: string; price: number } | null
+): CreateDemandePayload {
+  const fixedPrice = Number(selectedContractType?.price || 0);
+  return {
+    type_slug: "redaction-contrat",
+    variant_key: selectedContractType?.id || null,
+    paid_status: "unpaid",
+    currency: "XOF",
+    data: {
+      contractType: formData.contractType,
+      parties: {
+        p1: {
+          type: formData.party1Type,
+          name: formData.party1Name,
+          address: formData.party1Address,
+          id: formData.party1Id,
+          representative: formData.party1Representative || null,
+          phone: formData.party1Phone,
+          email: formData.party1Email,
+        },
+        p2: {
+          type: formData.party2Type,
+          name: formData.party2Name,
+          address: formData.party2Address,
+          id: formData.party2Id,
+          representative: formData.party2Representative || null,
+          phone: formData.party2Phone,
+          email: formData.party2Email,
+        },
+      },
+      object: formData.contractObject,
+      obligations: {
+        party1: formData.party1Obligations,
+        party2: formData.party2Obligations,
+      },
+      financials: {
+        amount_input: formData.amount,
+        paymentTerms: formData.paymentTerms,
+        latePenalties: formData.latePenalties || null,
+        price_fixed: fixedPrice,
+        pricing_mode: fixedPrice > 0 ? "fixed" : "quote",
+      },
+      duration: {
+        startDate: formData.startDate,
+        duration: formData.duration,
+        termination: formData.terminationConditions || null,
+      },
+      clauses: {
+        confidential: formData.isConfidential,
+        confidentialityClause: formData.confidentialityClause || null,
+        ipTransfer: formData.ipTransfer,
+        ipTerms: formData.ipTerms || null,
+        warranties: formData.warranties || null,
+        liabilityLimitation: formData.liabilityLimitation || null,
+      },
+      law: {
+        applicableLaw: formData.applicableLaw,
+        disputeResolution: formData.disputeResolution,
+      },
+    },
+    meta: { source: "website" },
+  };
+}

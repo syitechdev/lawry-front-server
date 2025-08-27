@@ -1,0 +1,53 @@
+import { http } from "../lib/http";
+
+function normalizeApiError(e) {
+  const status = e?.response?.status;
+  const payload = e?.response?.data;
+  const message =
+    payload?.message ||
+    payload?.error ||
+    e?.message ||
+    "Une erreur est survenue";
+  const err = new Error(message);
+  err.status = status;
+  err.payload = payload;
+  throw err;
+}
+
+export async function initPayment({ type, id, channel, customer, repay } = {}) {
+  try {
+    const body = {
+      ...(typeof repay === "boolean" ? { repay } : {}),
+      ...(customer
+        ? {
+            customerEmail: customer.email,
+            customerFirstName: customer.firstName,
+            customerLastName: customer.lastName,
+            customerPhoneNumber: customer.phone,
+          }
+        : {}),
+      ...(channel ? { channel } : {}),
+    };
+
+    const { data } = await http.post(
+      `/pay/${encodeURIComponent(type)}/${encodeURIComponent(id)}`,
+      body,
+      { headers: { Accept: "application/json" } }
+    );
+    return data;
+  } catch (e) {
+    normalizeApiError(e);
+  }
+}
+
+export async function getPaymentStatus(reference) {
+  try {
+    const { data } = await http.get(`/pay/return`, {
+      params: { reference },
+      headers: { Accept: "application/json" },
+    });
+    return data;
+  } catch (e) {
+    normalizeApiError(e);
+  }
+}

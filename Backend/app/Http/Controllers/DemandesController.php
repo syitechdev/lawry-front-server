@@ -184,18 +184,7 @@ class DemandesController extends Controller
                 ], 422);
             }
 
-            // On accepte plusieurs séparateurs: "::", ":", "|", ".", "/"
-            // $raw = preg_replace('/\s+/', '', $variantKey);
-            // $parts = preg_split('/(::|:|\||\.|\/)/', (string) $raw);
-            // $sigle = strtoupper((string) ($parts[0] ?? ''));
-            // $offerKey = (string) ($parts[1] ?? '');
 
-            // if ($sigle === '' || $offerKey === '') {
-            //     return response()->json([
-            //         'message' => 'Variante invalide pour ce type.',
-            //         'errors'  => ['variant_key' => ['Variante invalide pour ce type.']],
-            //     ], 422);
-            // }
             $raw = preg_replace('/\s+/', '', (string) $variantKey);
             $parts = preg_split('/(::|:|\||\.|\/)/', $raw);
 

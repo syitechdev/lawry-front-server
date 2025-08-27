@@ -5,12 +5,20 @@ namespace App\Models;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Casts\Attribute;
+use Illuminate\Support\Facades\Schema;
+
 use ApiPlatform\Metadata\ApiResource;
 use ApiPlatform\Metadata\Get;
 use ApiPlatform\Metadata\GetCollection;
 use ApiPlatform\Metadata\Post;
 use ApiPlatform\Metadata\Patch;
 use ApiPlatform\Metadata\Delete;
+
+use App\Contracts\PayableContract;
+use App\Traits\IsPayable;
+use App\Models\Payment;
+use App\Models\User;
+use App\Models\RegistrationItem;
 
 #[ApiResource(
     paginationItemsPerPage: 20,
@@ -23,10 +31,9 @@ use ApiPlatform\Metadata\Delete;
         new Delete(middleware: ['auth:sanctum', 'permission:formations.delete']),
     ],
 )]
-
-class Formation extends Model
+class Formation extends Model implements PayableContract
 {
-    use HasFactory;
+    use HasFactory, IsPayable;
 
     protected $fillable = [
         'title',
@@ -68,6 +75,11 @@ class Formation extends Model
         return $this->belongsTo(Category::class);
     }
 
+    public function registrationItems()
+    {
+        return $this->hasMany(RegistrationItem::class);
+    }
+
     public function categoryId(): Attribute
     {
         return Attribute::make(
@@ -76,8 +88,57 @@ class Formation extends Model
         );
     }
 
-    public function registrationItems()
+    public function payableAmountXof(): int
     {
-        return $this->hasMany(RegistrationItem::class);
+        return (int) $this->price_cfa;
+    }
+
+    public function payableLabel(): string
+    {
+        $title = $this->title ?: ('#' . $this->getKey());
+        $code  = $this->code ? " ({$this->code})" : '';
+        return 'Formation: ' . $title . $code;
+    }
+
+    public function onPaymentSucceeded(Payment $payment): void
+    {
+        $userId = (int) data_get($payment->meta, 'user_id');
+        if (!$userId && $payment->customer_email) {
+            $userId = optional(User::where('email', $payment->customer_email)->first())->id;
+        }
+        if (!$userId) {
+            $payment->meta = array_merge($payment->meta ?? [], ['registration_warning' => 'user_not_found']);
+            $payment->save();
+            return;
+        }
+
+        $item = RegistrationItem::firstOrNew([
+            'formation_id' => $this->getKey(),
+            'user_id'      => $userId,
+        ]);
+
+        $fill = [];
+        if (Schema::hasColumn($item->getTable(), 'status'))    $fill['status'] = 'paid';
+        if (Schema::hasColumn($item->getTable(), 'paid_at'))   $fill['paid_at'] = now();
+
+        $amount = (int) $payment->amount;
+        if (Schema::hasColumn($item->getTable(), 'amount_cfa')) $fill['amount_cfa'] = $amount;
+        elseif (Schema::hasColumn($item->getTable(), 'amount')) $fill['amount'] = $amount;
+
+        if (Schema::hasColumn($item->getTable(), 'currency'))   $fill['currency'] = $payment->currency ?: 'XOF';
+        if (Schema::hasColumn($item->getTable(), 'payment_id')) $fill['payment_id'] = $payment->id;
+
+        if (Schema::hasColumn($item->getTable(), 'meta')) {
+            $meta = $item->meta ?? [];
+            $meta['payment_reference'] = $payment->reference;
+            $meta['channel'] = $payment->channel;
+            $fill['meta'] = $meta;
+        }
+
+        if (!empty($fill)) $item->fill($fill);
+        $item->save();
+
+        $payment->meta = array_merge($payment->meta ?? [], ['registration_item_id' => $item->id]);
+        $payment->save();
     }
 }

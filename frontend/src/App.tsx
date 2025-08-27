@@ -58,6 +58,7 @@ import RedactionContratForm from "./pages/RedactionContratForm";
 import LegalConsultation from "./pages/LegalConsultation";
 import NotFound from "./pages/NotFound";
 import { AuthProvider } from "@/context/AuthContext";
+import PaymentReturn from "@/pages/PaymentReturn";
 
 // Dashboards
 import AdminDashboard from "./pages/AdminDashboard";
@@ -118,6 +119,8 @@ const App = () => (
               <Route path="/chatbot" element={<ChatBot />} />
               <Route path="/dossier-tracking" element={<DossierTracking />} />
               <Route path="/suivi-dossier" element={<DossierTracking />} />
+
+              <Route path="/payment/return" element={<PaymentReturn />} />
 
               {/* Présentations */}
               <Route path="/creer-entreprise" element={<CreerEntreprise />} />

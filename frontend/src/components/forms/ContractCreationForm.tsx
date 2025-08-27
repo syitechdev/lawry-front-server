@@ -5,29 +5,97 @@ import * as z from "zod";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
+import {
+  Form,
+  FormControl,
+  FormField,
+  FormItem,
+  FormLabel,
+  FormMessage,
+} from "@/components/ui/form";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Checkbox } from "@/components/ui/checkbox";
-import { FileText, Upload, ChevronLeft, ChevronRight, Users, FileCheck, Scale, Shield, Clock, Gavel, Eye, Send, CreditCard } from "lucide-react";
+import {
+  FileText,
+  Upload,
+  ChevronLeft,
+  ChevronRight,
+  Users,
+  FileCheck,
+  Scale,
+  Shield,
+  Clock,
+  Gavel,
+  Eye,
+  Send,
+  CreditCard,
+} from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import PaymentForm from "./PaymentForm";
 
 const contractTypes = [
-  { id: "commercial", name: "Contrat commercial", price: 25000, description: "Contrat de vente, fourniture, prestation" },
-  { id: "employment", name: "Contrat de travail", price: 15000, description: "CDI, CDD, contrat de stage" },
-  { id: "partnership", name: "Contrat de partenariat", price: 30000, description: "Joint-venture, collaboration" },
-  { id: "service", name: "Contrat de service", price: 20000, description: "Prestation de services, consulting" },
-  { id: "rental", name: "Contrat de bail", price: 18000, description: "Location immobilière ou mobilière" },
-  { id: "confidentiality", name: "Accord de confidentialité", price: 12000, description: "NDA, clause de non-divulgation" },
-  { id: "custom", name: "Contrat personnalisé", price: 35000, description: "Contrat sur mesure selon vos besoins" },
+  {
+    id: "commercial",
+    name: "Contrat commercial",
+    price: 25000,
+    description: "Contrat de vente, fourniture, prestation",
+  },
+  {
+    id: "employment",
+    name: "Contrat de travail",
+    price: 15000,
+    description: "CDI, CDD, contrat de stage",
+  },
+  {
+    id: "partnership",
+    name: "Contrat de partenariat",
+    price: 30000,
+    description: "Joint-venture, collaboration",
+  },
+  {
+    id: "service",
+    name: "Contrat de service",
+    price: 20000,
+    description: "Prestation de services, consulting",
+  },
+  {
+    id: "rental",
+    name: "Contrat de bail",
+    price: 18000,
+    description: "Location immobilière ou mobilière",
+  },
+  {
+    id: "confidentiality",
+    name: "Accord de confidentialité",
+    price: 12000,
+    description: "NDA, clause de non-divulgation",
+  },
+  {
+    id: "custom",
+    name: "Contrat personnalisé",
+    price: 35000,
+    description: "Contrat sur mesure selon vos besoins",
+  },
 ];
 
 const contractSchema = z.object({
   // Type de contrat
   contractType: z.string().min(1, "Type de contrat requis"),
-  
+
   // Partie 1
   party1Type: z.enum(["physical", "legal"]),
   party1Name: z.string().min(1, "Nom requis"),
@@ -36,7 +104,7 @@ const contractSchema = z.object({
   party1Representative: z.string().optional(),
   party1Phone: z.string().min(1, "Téléphone requis"),
   party1Email: z.string().email("Email invalide"),
-  
+
   // Partie 2
   party2Type: z.enum(["physical", "legal"]),
   party2Name: z.string().min(1, "Nom requis"),
@@ -45,34 +113,34 @@ const contractSchema = z.object({
   party2Representative: z.string().optional(),
   party2Phone: z.string().min(1, "Téléphone requis"),
   party2Email: z.string().email("Email invalide"),
-  
+
   // Objet du contrat
   contractObject: z.string().min(1, "Objet du contrat requis"),
-  
+
   // Obligations
   party1Obligations: z.string().min(1, "Obligations de la partie 1 requises"),
   party2Obligations: z.string().min(1, "Obligations de la partie 2 requises"),
-  
+
   // Conditions financières
   amount: z.string().min(1, "Montant requis"),
   paymentTerms: z.string().min(1, "Modalités de paiement requises"),
   latePenalties: z.string().optional(),
-  
+
   // Durée
   startDate: z.string().min(1, "Date de début requise"),
   duration: z.string().min(1, "Durée requise"),
   terminationConditions: z.string().optional(),
-  
+
   // Confidentialité
   isConfidential: z.boolean(),
   confidentialityClause: z.string().optional(),
   ipTransfer: z.boolean(),
   ipTerms: z.string().optional(),
-  
+
   // Garanties
   warranties: z.string().optional(),
   liabilityLimitation: z.string().optional(),
-  
+
   // Droit applicable
   applicableLaw: z.string().min(1, "Droit applicable requis"),
   disputeResolution: z.array(z.string()).min(1, "Mode de règlement requis"),
@@ -111,15 +179,17 @@ const ContractCreationForm = () => {
     { number: 10, title: "Paiement", icon: CreditCard },
   ];
 
-  const selectedContractType = contractTypes.find(type => type.id === form.watch("contractType"));
+  const selectedContractType = contractTypes.find(
+    (type) => type.id === form.watch("contractType")
+  );
 
   const handleFileUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(event.target.files || []);
-    setUploadedFiles(prev => [...prev, ...files]);
+    setUploadedFiles((prev) => [...prev, ...files]);
   };
 
   const removeFile = (index: number) => {
-    setUploadedFiles(prev => prev.filter((_, i) => i !== index));
+    setUploadedFiles((prev) => prev.filter((_, i) => i !== index));
   };
 
   const nextStep = () => {
@@ -140,27 +210,27 @@ const ContractCreationForm = () => {
       setCurrentStep(10);
       return;
     }
-    
+
     setIsSubmitting(true);
     console.log("Données du contrat:", data);
     console.log("Fichiers joints:", uploadedFiles);
     console.log("Type de contrat sélectionné:", selectedContractType);
-    
+
     try {
       // Simulation d'envoi
-      await new Promise(resolve => setTimeout(resolve, 2000));
-      
+      await new Promise((resolve) => setTimeout(resolve, 2000));
+
       toast({
         title: "Demande de rédaction de contrat envoyée avec succès",
-        description: "Nos juristes examineront votre demande et vous contacteront sous 24h pour débuter la rédaction de votre contrat personnalisé.",
+        description:
+          "Nos juristes examineront votre demande et vous contacteront sous 24h pour débuter la rédaction de votre contrat personnalisé.",
       });
-      
+
       // Reset du formulaire
       form.reset();
       setUploadedFiles([]);
       setCurrentStep(1);
       setShowPayment(false);
-      
     } catch (error) {
       toast({
         title: "Erreur lors de l'envoi",
@@ -174,7 +244,7 @@ const ContractCreationForm = () => {
 
   const renderPreview = () => {
     const data = form.getValues();
-    
+
     return (
       <div className="space-y-6">
         <Card>
@@ -190,16 +260,24 @@ const ContractCreationForm = () => {
           <CardContent className="space-y-6">
             {/* Type de contrat et tarif */}
             <div className="bg-red-50 border border-red-200 rounded-lg p-4">
-              <h4 className="font-semibold text-lg text-red-900 mb-3">Type de contrat sélectionné</h4>
+              <h4 className="font-semibold text-lg text-red-900 mb-3">
+                Type de contrat sélectionné
+              </h4>
               {selectedContractType && (
                 <div className="space-y-2">
                   <div className="flex justify-between items-start">
                     <div>
-                      <p className="font-medium text-red-800">{selectedContractType.name}</p>
-                      <p className="text-sm text-red-600">{selectedContractType.description}</p>
+                      <p className="font-medium text-red-800">
+                        {selectedContractType.name}
+                      </p>
+                      <p className="text-sm text-red-600">
+                        {selectedContractType.description}
+                      </p>
                     </div>
                     <div className="text-right">
-                      <p className="font-bold text-red-900">{selectedContractType.price.toLocaleString()} FCFA</p>
+                      <p className="font-bold text-red-900">
+                        {selectedContractType.price.toLocaleString()} FCFA
+                      </p>
                     </div>
                   </div>
                 </div>
@@ -211,101 +289,186 @@ const ContractCreationForm = () => {
               <div className="space-y-3">
                 <h4 className="font-semibold text-lg text-red-900">Partie 1</h4>
                 <div className="space-y-2 text-sm">
-                  <p><strong>Type:</strong> {data.party1Type === "physical" ? "Personne physique" : "Personne morale"}</p>
-                  <p><strong>Nom:</strong> {data.party1Name || "Non renseigné"}</p>
-                  <p><strong>Adresse:</strong> {data.party1Address || "Non renseigné"}</p>
-                  <p><strong>ID:</strong> {data.party1Id || "Non renseigné"}</p>
+                  <p>
+                    <strong>Type:</strong>{" "}
+                    {data.party1Type === "physical"
+                      ? "Personne physique"
+                      : "Personne morale"}
+                  </p>
+                  <p>
+                    <strong>Nom:</strong> {data.party1Name || "Non renseigné"}
+                  </p>
+                  <p>
+                    <strong>Adresse:</strong>{" "}
+                    {data.party1Address || "Non renseigné"}
+                  </p>
+                  <p>
+                    <strong>ID:</strong> {data.party1Id || "Non renseigné"}
+                  </p>
                   {data.party1Representative && (
-                    <p><strong>Représentant:</strong> {data.party1Representative}</p>
+                    <p>
+                      <strong>Représentant:</strong> {data.party1Representative}
+                    </p>
                   )}
-                  <p><strong>Téléphone:</strong> {data.party1Phone || "Non renseigné"}</p>
-                  <p><strong>Email:</strong> {data.party1Email || "Non renseigné"}</p>
+                  <p>
+                    <strong>Téléphone:</strong>{" "}
+                    {data.party1Phone || "Non renseigné"}
+                  </p>
+                  <p>
+                    <strong>Email:</strong>{" "}
+                    {data.party1Email || "Non renseigné"}
+                  </p>
                 </div>
               </div>
-              
+
               <div className="space-y-3">
                 <h4 className="font-semibold text-lg text-red-900">Partie 2</h4>
                 <div className="space-y-2 text-sm">
-                  <p><strong>Type:</strong> {data.party2Type === "physical" ? "Personne physique" : "Personne morale"}</p>
-                  <p><strong>Nom:</strong> {data.party2Name || "Non renseigné"}</p>
-                  <p><strong>Adresse:</strong> {data.party2Address || "Non renseigné"}</p>
-                  <p><strong>ID:</strong> {data.party2Id || "Non renseigné"}</p>
+                  <p>
+                    <strong>Type:</strong>{" "}
+                    {data.party2Type === "physical"
+                      ? "Personne physique"
+                      : "Personne morale"}
+                  </p>
+                  <p>
+                    <strong>Nom:</strong> {data.party2Name || "Non renseigné"}
+                  </p>
+                  <p>
+                    <strong>Adresse:</strong>{" "}
+                    {data.party2Address || "Non renseigné"}
+                  </p>
+                  <p>
+                    <strong>ID:</strong> {data.party2Id || "Non renseigné"}
+                  </p>
                   {data.party2Representative && (
-                    <p><strong>Représentant:</strong> {data.party2Representative}</p>
+                    <p>
+                      <strong>Représentant:</strong> {data.party2Representative}
+                    </p>
                   )}
-                  <p><strong>Téléphone:</strong> {data.party2Phone || "Non renseigné"}</p>
-                  <p><strong>Email:</strong> {data.party2Email || "Non renseigné"}</p>
+                  <p>
+                    <strong>Téléphone:</strong>{" "}
+                    {data.party2Phone || "Non renseigné"}
+                  </p>
+                  <p>
+                    <strong>Email:</strong>{" "}
+                    {data.party2Email || "Non renseigné"}
+                  </p>
                 </div>
               </div>
             </div>
 
             {/* Objet et obligations */}
             <div className="space-y-4">
-              <h4 className="font-semibold text-lg text-red-900">Objet du contrat</h4>
-              <p className="text-sm bg-gray-50 p-3 rounded">{data.contractObject || "Non renseigné"}</p>
-              
+              <h4 className="font-semibold text-lg text-red-900">
+                Objet du contrat
+              </h4>
+              <p className="text-sm bg-gray-50 p-3 rounded">
+                {data.contractObject || "Non renseigné"}
+              </p>
+
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div>
                   <h5 className="font-medium mb-2">Obligations Partie 1</h5>
-                  <p className="text-sm bg-gray-50 p-3 rounded">{data.party1Obligations || "Non renseigné"}</p>
+                  <p className="text-sm bg-gray-50 p-3 rounded">
+                    {data.party1Obligations || "Non renseigné"}
+                  </p>
                 </div>
                 <div>
                   <h5 className="font-medium mb-2">Obligations Partie 2</h5>
-                  <p className="text-sm bg-gray-50 p-3 rounded">{data.party2Obligations || "Non renseigné"}</p>
+                  <p className="text-sm bg-gray-50 p-3 rounded">
+                    {data.party2Obligations || "Non renseigné"}
+                  </p>
                 </div>
               </div>
             </div>
 
             {/* Conditions financières */}
             <div className="space-y-3">
-              <h4 className="font-semibold text-lg text-red-900">Conditions financières</h4>
+              <h4 className="font-semibold text-lg text-red-900">
+                Conditions financières
+              </h4>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
-                <p><strong>Montant:</strong> {data.amount || "Non renseigné"}</p>
-                <p><strong>Modalités de paiement:</strong> {data.paymentTerms || "Non renseigné"}</p>
+                <p>
+                  <strong>Montant:</strong> {data.amount || "Non renseigné"}
+                </p>
+                <p>
+                  <strong>Modalités de paiement:</strong>{" "}
+                  {data.paymentTerms || "Non renseigné"}
+                </p>
                 {data.latePenalties && (
-                  <p className="col-span-2"><strong>Pénalités de retard:</strong> {data.latePenalties}</p>
+                  <p className="col-span-2">
+                    <strong>Pénalités de retard:</strong> {data.latePenalties}
+                  </p>
                 )}
               </div>
             </div>
 
             {/* Durée */}
             <div className="space-y-3">
-              <h4 className="font-semibold text-lg text-red-900">Durée et résiliation</h4>
+              <h4 className="font-semibold text-lg text-red-900">
+                Durée et résiliation
+              </h4>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
-                <p><strong>Date de début:</strong> {data.startDate || "Non renseigné"}</p>
-                <p><strong>Durée:</strong> {data.duration || "Non renseigné"}</p>
+                <p>
+                  <strong>Date de début:</strong>{" "}
+                  {data.startDate || "Non renseigné"}
+                </p>
+                <p>
+                  <strong>Durée:</strong> {data.duration || "Non renseigné"}
+                </p>
                 {data.terminationConditions && (
-                  <p className="col-span-2"><strong>Conditions de résiliation:</strong> {data.terminationConditions}</p>
+                  <p className="col-span-2">
+                    <strong>Conditions de résiliation:</strong>{" "}
+                    {data.terminationConditions}
+                  </p>
                 )}
               </div>
             </div>
 
             {/* Clauses spéciales */}
-            {(data.isConfidential || data.ipTransfer || data.warranties || data.liabilityLimitation) && (
+            {(data.isConfidential ||
+              data.ipTransfer ||
+              data.warranties ||
+              data.liabilityLimitation) && (
               <div className="space-y-3">
-                <h4 className="font-semibold text-lg text-red-900">Clauses spéciales</h4>
+                <h4 className="font-semibold text-lg text-red-900">
+                  Clauses spéciales
+                </h4>
                 <div className="space-y-2 text-sm">
                   {data.isConfidential && (
                     <div>
-                      <p><strong>Confidentialité:</strong> Oui</p>
+                      <p>
+                        <strong>Confidentialité:</strong> Oui
+                      </p>
                       {data.confidentialityClause && (
-                        <p className="bg-gray-50 p-2 rounded mt-1">{data.confidentialityClause}</p>
+                        <p className="bg-gray-50 p-2 rounded mt-1">
+                          {data.confidentialityClause}
+                        </p>
                       )}
                     </div>
                   )}
                   {data.ipTransfer && (
                     <div>
-                      <p><strong>Transfert PI:</strong> Oui</p>
+                      <p>
+                        <strong>Transfert PI:</strong> Oui
+                      </p>
                       {data.ipTerms && (
-                        <p className="bg-gray-50 p-2 rounded mt-1">{data.ipTerms}</p>
+                        <p className="bg-gray-50 p-2 rounded mt-1">
+                          {data.ipTerms}
+                        </p>
                       )}
                     </div>
                   )}
                   {data.warranties && (
-                    <p><strong>Garanties:</strong> {data.warranties}</p>
+                    <p>
+                      <strong>Garanties:</strong> {data.warranties}
+                    </p>
                   )}
                   {data.liabilityLimitation && (
-                    <p><strong>Limitation responsabilité:</strong> {data.liabilityLimitation}</p>
+                    <p>
+                      <strong>Limitation responsabilité:</strong>{" "}
+                      {data.liabilityLimitation}
+                    </p>
                   )}
                 </div>
               </div>
@@ -313,35 +476,55 @@ const ContractCreationForm = () => {
 
             {/* Droit applicable */}
             <div className="space-y-3">
-              <h4 className="font-semibold text-lg text-red-900">Droit applicable</h4>
+              <h4 className="font-semibold text-lg text-red-900">
+                Droit applicable
+              </h4>
               <div className="text-sm space-y-2">
-                <p><strong>Droit applicable:</strong> {
-                  data.applicableLaw === "ivorian" ? "Droit ivoirien" :
-                  data.applicableLaw === "ohada" ? "Droit OHADA" : "Autre"
-                }</p>
-                <p><strong>Règlement des litiges:</strong> {
-                  data.disputeResolution.map(mode => {
-                    switch(mode) {
-                      case "negotiation": return "Négociation amiable";
-                      case "mediation": return "Médiation/Arbitrage";
-                      case "jurisdiction": return "Juridictions compétentes";
-                      default: return mode;
-                    }
-                  }).join(", ") || "Non renseigné"
-                }</p>
+                <p>
+                  <strong>Droit applicable:</strong>{" "}
+                  {data.applicableLaw === "ivorian"
+                    ? "Droit ivoirien"
+                    : data.applicableLaw === "ohada"
+                    ? "Droit OHADA"
+                    : "Autre"}
+                </p>
+                <p>
+                  <strong>Règlement des litiges:</strong>{" "}
+                  {data.disputeResolution
+                    .map((mode) => {
+                      switch (mode) {
+                        case "negotiation":
+                          return "Négociation amiable";
+                        case "mediation":
+                          return "Médiation/Arbitrage";
+                        case "jurisdiction":
+                          return "Juridictions compétentes";
+                        default:
+                          return mode;
+                      }
+                    })
+                    .join(", ") || "Non renseigné"}
+                </p>
               </div>
             </div>
 
             {/* Documents */}
             {uploadedFiles.length > 0 && (
               <div className="space-y-3">
-                <h4 className="font-semibold text-lg text-red-900">Documents joints</h4>
+                <h4 className="font-semibold text-lg text-red-900">
+                  Documents joints
+                </h4>
                 <div className="space-y-2">
                   {uploadedFiles.map((file, index) => (
-                    <div key={index} className="flex items-center gap-2 text-sm bg-gray-50 p-2 rounded">
+                    <div
+                      key={index}
+                      className="flex items-center gap-2 text-sm bg-gray-50 p-2 rounded"
+                    >
                       <FileText className="h-4 w-4" />
                       <span>{file.name}</span>
-                      <span className="text-gray-500">({(file.size / 1024).toFixed(1)} KB)</span>
+                      <span className="text-gray-500">
+                        ({(file.size / 1024).toFixed(1)} KB)
+                      </span>
                     </div>
                   ))}
                 </div>
@@ -357,10 +540,13 @@ const ContractCreationForm = () => {
                 <FileCheck className="h-5 w-5 text-red-600" />
               </div>
               <div className="space-y-2">
-                <h4 className="font-semibold text-red-900">Prêt à procéder au paiement ?</h4>
+                <h4 className="font-semibold text-red-900">
+                  Prêt à procéder au paiement ?
+                </h4>
                 <p className="text-sm text-red-700">
-                  Procédez au paiement pour finaliser votre commande. Nos juristes examineront votre demande 
-                  et vous contacteront sous 24h pour débuter la rédaction de votre contrat personnalisé.
+                  Procédez au paiement pour finaliser votre commande. Nos
+                  juristes examineront votre demande et vous contacteront sous
+                  24h pour débuter la rédaction de votre contrat personnalisé.
                 </p>
               </div>
             </div>
@@ -387,8 +573,8 @@ const ContractCreationForm = () => {
                         <Card
                           key={type.id}
                           className={`cursor-pointer transition-all hover:shadow-md ${
-                            field.value === type.id 
-                              ? "border-red-500 bg-red-50" 
+                            field.value === type.id
+                              ? "border-red-500 bg-red-50"
                               : "border-gray-200"
                           }`}
                           onClick={() => field.onChange(type.id)}
@@ -397,10 +583,14 @@ const ContractCreationForm = () => {
                             <div className="flex items-start justify-between">
                               <div className="space-y-2">
                                 <h3 className="font-semibold">{type.name}</h3>
-                                <p className="text-sm text-gray-600">{type.description}</p>
+                                <p className="text-sm text-gray-600">
+                                  {type.description}
+                                </p>
                               </div>
                               <div className="text-right">
-                                <p className="font-bold text-red-900">{type.price.toLocaleString()} FCFA</p>
+                                <p className="font-bold text-red-900">
+                                  {type.price.toLocaleString()} FCFA
+                                </p>
                               </div>
                             </div>
                           </CardContent>
@@ -430,15 +620,22 @@ const ContractCreationForm = () => {
                     render={({ field }) => (
                       <FormItem>
                         <FormLabel>Type</FormLabel>
-                        <Select onValueChange={field.onChange} defaultValue={field.value}>
+                        <Select
+                          onValueChange={field.onChange}
+                          defaultValue={field.value}
+                        >
                           <FormControl>
                             <SelectTrigger>
                               <SelectValue />
                             </SelectTrigger>
                           </FormControl>
                           <SelectContent>
-                            <SelectItem value="physical">Personne physique</SelectItem>
-                            <SelectItem value="legal">Personne morale</SelectItem>
+                            <SelectItem value="physical">
+                              Personne physique
+                            </SelectItem>
+                            <SelectItem value="legal">
+                              Personne morale
+                            </SelectItem>
                           </SelectContent>
                         </Select>
                       </FormItem>
@@ -477,7 +674,10 @@ const ContractCreationForm = () => {
                       <FormItem>
                         <FormLabel>Numéro d'identification</FormLabel>
                         <FormControl>
-                          <Input placeholder="RCCM, NCC, CNI, Passeport..." {...field} />
+                          <Input
+                            placeholder="RCCM, NCC, CNI, Passeport..."
+                            {...field}
+                          />
                         </FormControl>
                         <FormMessage />
                       </FormItem>
@@ -539,15 +739,22 @@ const ContractCreationForm = () => {
                     render={({ field }) => (
                       <FormItem>
                         <FormLabel>Type</FormLabel>
-                        <Select onValueChange={field.onChange} defaultValue={field.value}>
+                        <Select
+                          onValueChange={field.onChange}
+                          defaultValue={field.value}
+                        >
                           <FormControl>
                             <SelectTrigger>
                               <SelectValue />
                             </SelectTrigger>
                           </FormControl>
                           <SelectContent>
-                            <SelectItem value="physical">Personne physique</SelectItem>
-                            <SelectItem value="legal">Personne morale</SelectItem>
+                            <SelectItem value="physical">
+                              Personne physique
+                            </SelectItem>
+                            <SelectItem value="legal">
+                              Personne morale
+                            </SelectItem>
                           </SelectContent>
                         </Select>
                       </FormItem>
@@ -586,7 +793,10 @@ const ContractCreationForm = () => {
                       <FormItem>
                         <FormLabel>Numéro d'identification</FormLabel>
                         <FormControl>
-                          <Input placeholder="RCCM, NCC, CNI, Passeport..." {...field} />
+                          <Input
+                            placeholder="RCCM, NCC, CNI, Passeport..."
+                            {...field}
+                          />
                         </FormControl>
                         <FormMessage />
                       </FormItem>
@@ -650,16 +860,16 @@ const ContractCreationForm = () => {
                 <FormItem>
                   <FormLabel>Objet du contrat</FormLabel>
                   <FormControl>
-                    <Textarea 
+                    <Textarea
                       placeholder="Décrivez clairement l'objet du contrat (ex: Fourniture de services de consulting, Vente de marchandises, Contrat de travail, etc.)"
-                      {...field} 
+                      {...field}
                     />
                   </FormControl>
                   <FormMessage />
                 </FormItem>
               )}
             />
-            
+
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
               <FormField
                 control={form.control}
@@ -668,17 +878,17 @@ const ContractCreationForm = () => {
                   <FormItem>
                     <FormLabel>Obligations de la Partie 1</FormLabel>
                     <FormControl>
-                      <Textarea 
+                      <Textarea
                         placeholder="Détaillez les obligations de la première partie"
                         className="min-h-[120px]"
-                        {...field} 
+                        {...field}
                       />
                     </FormControl>
                     <FormMessage />
                   </FormItem>
                 )}
               />
-              
+
               <FormField
                 control={form.control}
                 name="party2Obligations"
@@ -686,10 +896,10 @@ const ContractCreationForm = () => {
                   <FormItem>
                     <FormLabel>Obligations de la Partie 2</FormLabel>
                     <FormControl>
-                      <Textarea 
+                      <Textarea
                         placeholder="Détaillez les obligations de la deuxième partie"
                         className="min-h-[120px]"
-                        {...field} 
+                        {...field}
                       />
                     </FormControl>
                     <FormMessage />
@@ -716,7 +926,7 @@ const ContractCreationForm = () => {
                 </FormItem>
               )}
             />
-            
+
             <FormField
               control={form.control}
               name="paymentTerms"
@@ -724,16 +934,16 @@ const ContractCreationForm = () => {
                 <FormItem>
                   <FormLabel>Modalités de paiement</FormLabel>
                   <FormControl>
-                    <Textarea 
+                    <Textarea
                       placeholder="Ex: 30% à la signature, 70% à la livraison"
-                      {...field} 
+                      {...field}
                     />
                   </FormControl>
                   <FormMessage />
                 </FormItem>
               )}
             />
-            
+
             <FormField
               control={form.control}
               name="latePenalties"
@@ -741,9 +951,9 @@ const ContractCreationForm = () => {
                 <FormItem>
                   <FormLabel>Pénalités de retard (optionnel)</FormLabel>
                   <FormControl>
-                    <Textarea 
+                    <Textarea
                       placeholder="Ex: 1% par jour de retard"
-                      {...field} 
+                      {...field}
                     />
                   </FormControl>
                 </FormItem>
@@ -769,7 +979,7 @@ const ContractCreationForm = () => {
                   </FormItem>
                 )}
               />
-              
+
               <FormField
                 control={form.control}
                 name="duration"
@@ -777,14 +987,17 @@ const ContractCreationForm = () => {
                   <FormItem>
                     <FormLabel>Durée du contrat</FormLabel>
                     <FormControl>
-                      <Input placeholder="Ex: 12 mois, indéterminée" {...field} />
+                      <Input
+                        placeholder="Ex: 12 mois, indéterminée"
+                        {...field}
+                      />
                     </FormControl>
                     <FormMessage />
                   </FormItem>
                 )}
               />
             </div>
-            
+
             <FormField
               control={form.control}
               name="terminationConditions"
@@ -792,9 +1005,9 @@ const ContractCreationForm = () => {
                 <FormItem>
                   <FormLabel>Conditions de résiliation anticipée</FormLabel>
                   <FormControl>
-                    <Textarea 
+                    <Textarea
                       placeholder="Ex: Préavis de 30 jours, non-respect des obligations"
-                      {...field} 
+                      {...field}
                     />
                   </FormControl>
                 </FormItem>
@@ -826,7 +1039,7 @@ const ContractCreationForm = () => {
                   </FormItem>
                 )}
               />
-              
+
               {form.watch("isConfidential") && (
                 <FormField
                   control={form.control}
@@ -842,7 +1055,7 @@ const ContractCreationForm = () => {
                 />
               )}
             </div>
-            
+
             <div className="space-y-4">
               <FormField
                 control={form.control}
@@ -863,7 +1076,7 @@ const ContractCreationForm = () => {
                   </FormItem>
                 )}
               />
-              
+
               {form.watch("ipTransfer") && (
                 <FormField
                   control={form.control}
@@ -879,7 +1092,7 @@ const ContractCreationForm = () => {
                 />
               )}
             </div>
-            
+
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
               <FormField
                 control={form.control}
@@ -893,7 +1106,7 @@ const ContractCreationForm = () => {
                   </FormItem>
                 )}
               />
-              
+
               <FormField
                 control={form.control}
                 name="liabilityLimitation"
@@ -919,7 +1132,10 @@ const ContractCreationForm = () => {
               render={({ field }) => (
                 <FormItem>
                   <FormLabel>Droit applicable</FormLabel>
-                  <Select onValueChange={field.onChange} defaultValue={field.value}>
+                  <Select
+                    onValueChange={field.onChange}
+                    defaultValue={field.value}
+                  >
                     <FormControl>
                       <SelectTrigger>
                         <SelectValue placeholder="Sélectionner" />
@@ -935,7 +1151,7 @@ const ContractCreationForm = () => {
                 </FormItem>
               )}
             />
-            
+
             <FormField
               control={form.control}
               name="disputeResolution"
@@ -946,7 +1162,10 @@ const ContractCreationForm = () => {
                     {[
                       { value: "negotiation", label: "Négociation amiable" },
                       { value: "mediation", label: "Médiation/Arbitrage" },
-                      { value: "jurisdiction", label: "Juridictions compétentes" },
+                      {
+                        value: "jurisdiction",
+                        label: "Juridictions compétentes",
+                      },
                     ].map((item) => (
                       <FormField
                         key={item.value}
@@ -959,7 +1178,10 @@ const ContractCreationForm = () => {
                                 checked={field.value?.includes(item.value)}
                                 onCheckedChange={(checked) => {
                                   return checked
-                                    ? field.onChange([...field.value, item.value])
+                                    ? field.onChange([
+                                        ...field.value,
+                                        item.value,
+                                      ])
                                     : field.onChange(
                                         field.value?.filter(
                                           (value) => value !== item.value
@@ -1010,19 +1232,23 @@ const ContractCreationForm = () => {
                     <label htmlFor="file-upload" className="cursor-pointer">
                       <Upload className="h-8 w-8 mx-auto mb-2 text-gray-400" />
                       <p className="text-sm text-gray-600">
-                        Cliquez pour sélectionner des fichiers ou glissez-déposez
+                        Cliquez pour sélectionner des fichiers ou
+                        glissez-déposez
                       </p>
                       <p className="text-xs text-gray-400 mt-1">
                         PDF, DOC, DOCX, JPG, PNG (max 10MB par fichier)
                       </p>
                     </label>
                   </div>
-                  
+
                   {uploadedFiles.length > 0 && (
                     <div className="space-y-2">
                       <h4 className="font-medium">Fichiers sélectionnés:</h4>
                       {uploadedFiles.map((file, index) => (
-                        <div key={index} className="flex items-center justify-between p-2 bg-gray-50 rounded">
+                        <div
+                          key={index}
+                          className="flex items-center justify-between p-2 bg-gray-50 rounded"
+                        >
                           <span className="text-sm">{file.name}</span>
                           <Button
                             type="button"
@@ -1047,8 +1273,8 @@ const ContractCreationForm = () => {
 
       case 10:
         return (
-          <PaymentForm 
-            contractType={selectedContractType} 
+          <PaymentForm
+            contractType={selectedContractType}
             onPaymentSuccess={onSubmit}
             contractData={form.getValues()}
           />
@@ -1079,9 +1305,13 @@ const ContractCreationForm = () => {
                 >
                   <StepIcon className="h-5 w-5" />
                 </div>
-                <span className={`text-xs text-center max-w-20 ${
-                  currentStep >= step.number ? "text-red-900 font-medium" : "text-gray-600"
-                }`}>
+                <span
+                  className={`text-xs text-center max-w-20 ${
+                    currentStep >= step.number
+                      ? "text-red-900 font-medium"
+                      : "text-gray-600"
+                  }`}
+                >
                   {step.title}
                 </span>
               </div>
@@ -1105,9 +1335,7 @@ const ContractCreationForm = () => {
                 Étape {currentStep}: {steps[currentStep - 1].title}
               </CardTitle>
             </CardHeader>
-            <CardContent>
-              {renderStepContent()}
-            </CardContent>
+            <CardContent>{renderStepContent()}</CardContent>
           </Card>
 
           {/* Navigation Buttons */}

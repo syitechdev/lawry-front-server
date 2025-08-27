@@ -39,6 +39,7 @@ class DemandeResource extends JsonResource
         }
 
         return [
+            'id'     => $this->id,
             'ref'    => $this->ref,
 
             'type'   => [

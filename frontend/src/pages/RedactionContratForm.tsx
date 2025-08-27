@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState, useRef } from "react";
 import Header from "@/components/Header";
 import {
   Link,
@@ -6,6 +6,7 @@ import {
   useNavigate,
   useSearchParams,
 } from "react-router-dom";
+
 import { http } from "@/lib/http";
 import { toast } from "sonner";
 
@@ -64,26 +65,28 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 
-// Types pour récupérer la config du type
+import { initPayment } from "@/services/paymentApi";
+import { autoPost } from "@/utils/autoPost";
+
 type PricingMode = "fixed" | "from" | "quote";
 type VariantCard = {
   key: string;
   title: string;
-  subtitle?: string;
+  subtitle?: string | null;
+  pill?: string | null;
   pricing_mode: PricingMode;
   price_amount?: number | null;
   currency?: string | null;
   features?: string[];
-  cta?: string;
+  cta?: string | null;
   active?: boolean;
-  pill?: string;
   meta?: any;
 };
 type RtResponse = {
   id: number;
   name: string;
   slug: string;
-  currency?: string;
+  currency?: string | null;
   config?: {
     variant_cards?: VariantCard[];
     order?: string[];
@@ -91,7 +94,6 @@ type RtResponse = {
 };
 
 const formSchema = z.object({
-  // Identification (Partie unique)
   partie1Nom: z.string().min(2, "Le nom est requis"),
   partie1Adresse: z.string().min(5, "L'adresse est requise"),
   partie1Identification: z
@@ -100,39 +102,21 @@ const formSchema = z.object({
   partie1Representant: z.string().optional(),
   partie1Telephone: z.string().min(7, "Téléphone requis"),
   partie1Email: z.string().email("Email invalide"),
-
-  // Objet du contrat
   objetContrat: z.string().min(10, "L'objet du contrat doit être décrit"),
-
-  // Obligations
-  obligationsPartie1: z
-    .string()
-    .min(10, "Les obligations de la partie 1 sont requises"),
-  obligationsPartie2: z
-    .string()
-    .min(10, "Les obligations de la partie 2 sont requises"),
-
-  // Conditions financières
+  obligationsPartie1: z.string().min(10, "Obligations de la partie 1 requises"),
+  obligationsPartie2: z.string().min(10, "Obligations de la partie 2 requises"),
   montant: z.string().min(1, "Le montant est requis"),
-  modalitesPaiement: z
-    .string()
-    .min(5, "Les modalités de paiement sont requises"),
+  modalitesPaiement: z.string().min(5, "Modalités de paiement requises"),
   penalitesRetard: z.string().optional(),
-
-  // Durée et résiliation
   dateDebut: z.string().min(1, "La date de début est requise"),
   dureeContrat: z.string().min(1, "La durée du contrat est requise"),
   conditionsResiliation: z
     .string()
     .min(5, "Les conditions de résiliation sont requises"),
-
-  // Confidentialité / PI
   confidentialite: z.enum(["oui", "non"]),
   clausesConfidentialite: z.string().optional(),
   proprieteIntellectuelle: z.enum(["oui", "non"]),
   modalitesPI: z.string().optional(),
-
-  // Garanties + droit
   garanties: z.string().min(5, "Les garanties sont requises"),
   responsabilite: z.string().optional(),
   droitApplicable: z.string().min(2, "Le droit applicable est requis"),
@@ -140,48 +124,54 @@ const formSchema = z.object({
     .array(z.string())
     .min(1, "Au moins un mode de règlement est requis"),
 });
-
 type FormData = z.infer<typeof formSchema>;
+
+type SelectedOffer = {
+  key: string;
+  title: string;
+  subtitle: string | null;
+  pill: string | null;
+  pricing_mode: PricingMode;
+  price: number | null;
+  currency: string | null;
+  features: string[];
+  cta: string | null;
+};
 
 const RedactionContratForm = () => {
   const navigate = useNavigate();
   const location = useLocation();
   const [search] = useSearchParams();
 
-  // Auth : on ne bloque pas la saisie si non connecté
+  const redirectedRef = useRef(false);
+
   const isAuthenticated =
     !!localStorage.getItem("auth_token") ||
     !!localStorage.getItem("access_token");
 
-  // --- état “offre” (variant) + cartes (pour récupérer prix si venu par URL directe)
   const [rt, setRt] = useState<RtResponse | null>(null);
   const [cards, setCards] = useState<VariantCard[]>([]);
   const [loadingCards, setLoadingCards] = useState(true);
 
-  // Offre passée via state OU query (?variant=key)
-  const stateOffer = (location.state as any)?.offer;
-  const queryVariant =
-    search.get("variant") || search.get("offer") || undefined;
+  const stateOfferKey = (location.state as any)?.offer?.key as
+    | string
+    | undefined;
+  const queryVariant = (search.get("variant") ||
+    search.get("offer") ||
+    undefined) as string | undefined;
 
-  const [selectedOffer, setSelectedOffer] = useState<{
-    key: string;
-    title: string;
-    pricing_mode: PricingMode;
-    price: number | null;
-    currency: string;
-  } | null>(null);
+  const [selectedOffer, setSelectedOffer] = useState<SelectedOffer | null>(
+    null
+  );
 
-  // Modal de succès
   const [successOpen, setSuccessOpen] = useState(false);
   const [successRef, setSuccessRef] = useState<string | null>(null);
   const [closeRedirect, setCloseRedirect] = useState<"home" | "orders" | null>(
     null
   );
 
-  // Upload
   const [uploadedFiles, setUploadedFiles] = useState<File[]>([]);
 
-  // Form
   const form = useForm<FormData>({
     resolver: zodResolver(formSchema),
     defaultValues: {
@@ -193,7 +183,6 @@ const RedactionContratForm = () => {
     mode: "onTouched",
   });
 
-  // Préremplissage si user connu
   useEffect(() => {
     try {
       const raw = localStorage.getItem("current_user");
@@ -206,7 +195,18 @@ const RedactionContratForm = () => {
     } catch {}
   }, []);
 
-  // Charger les variantes “rediger-contrat”
+  const cardToOffer = (c: VariantCard): SelectedOffer => ({
+    key: c.key,
+    title: c.title,
+    subtitle: c.subtitle ?? null,
+    pill: c.pill ?? null,
+    pricing_mode: c.pricing_mode,
+    price: typeof c.price_amount === "number" ? Number(c.price_amount) : null,
+    currency: c.currency ?? null,
+    features: Array.isArray(c.features) ? c.features : [],
+    cta: c.cta ?? null,
+  });
+
   useEffect(() => {
     (async () => {
       setLoadingCards(true);
@@ -224,46 +224,14 @@ const RedactionContratForm = () => {
         setRt(data);
         setCards(ordered);
 
-        // Déterminer l’offre initiale
-        if (stateOffer?.key) {
-          setSelectedOffer({
-            key: stateOffer.key,
-            title: stateOffer.title,
-            pricing_mode: stateOffer.pricing_mode ?? "quote",
-            price:
-              stateOffer.pricing_mode === "quote"
-                ? null
-                : stateOffer.price ?? null,
-            currency: stateOffer.currency || data?.currency || "XOF",
-          });
-        } else if (queryVariant) {
-          const found =
-            ordered.find((c) => c.key === queryVariant) || ordered[0];
-          if (found) {
-            setSelectedOffer({
-              key: found.key,
-              title: found.title,
-              pricing_mode: found.pricing_mode,
-              price:
-                found.pricing_mode === "quote"
-                  ? null
-                  : found.price_amount ?? null,
-              currency: found.currency || data?.currency || "XOF",
-            });
-          }
-        } else if (ordered[0]) {
-          const first = ordered[0];
-          setSelectedOffer({
-            key: first.key,
-            title: first.title,
-            pricing_mode: first.pricing_mode,
-            price:
-              first.pricing_mode === "quote"
-                ? null
-                : first.price_amount ?? null,
-            currency: first.currency || data?.currency || "XOF",
-          });
-        }
+        let chosen: VariantCard | undefined;
+        if (stateOfferKey)
+          chosen = ordered.find((c) => c.key === stateOfferKey);
+        if (!chosen && queryVariant)
+          chosen = ordered.find((c) => c.key === queryVariant);
+        if (!chosen) chosen = ordered[0];
+
+        if (chosen) setSelectedOffer(cardToOffer(chosen));
       } catch (e: any) {
         toast.error(
           e?.response?.data?.message ||
@@ -275,7 +243,6 @@ const RedactionContratForm = () => {
     })();
   }, []);
 
-  // Progress steps
   const steps = [
     { id: 1, title: "Identification", icon: FileText },
     { id: 2, title: "Objet du contrat", icon: FileText },
@@ -322,12 +289,10 @@ const RedactionContratForm = () => {
     }
     setCurrentStep((s) => Math.min(s + 1, steps.length));
   };
-
   const prevStep = () => setCurrentStep((s) => Math.max(1, s - 1));
 
-  // Upload
-  const handleFileUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
-    const files = Array.from(event.target.files || []);
+  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(e.target.files || []);
     if (!files.length) return;
     setUploadedFiles((prev) => [...prev, ...files]);
     toast.success(`${files.length} document(s) ajouté(s).`);
@@ -339,17 +304,28 @@ const RedactionContratForm = () => {
 
   const isSubmitting = form.formState.isSubmitting;
 
-  // Bandeau offre sélectionnée (affichage montant)
   const priceDisplay = useMemo(() => {
     if (!selectedOffer) return "—";
-    if (selectedOffer.pricing_mode === "quote" || selectedOffer.price == null)
-      return "Sur devis";
-    return `${Number(selectedOffer.price).toLocaleString("fr-FR")} ${
-      selectedOffer.currency
-    }`;
-  }, [selectedOffer]);
+    const cur =
+      (selectedOffer.currency || rt?.currency || "XOF") === "XOF"
+        ? "FCFA"
+        : selectedOffer.currency || rt?.currency || "";
+    const amt = selectedOffer.price ?? null;
 
-  // Pour le bloc “Mot de passe oublié” dans le modal
+    switch (selectedOffer.pricing_mode) {
+      case "fixed":
+        return amt != null
+          ? `${amt.toLocaleString("fr-FR")} ${cur}`
+          : `— ${cur}`;
+      case "from":
+        return amt && amt > 0
+          ? `À partir de ${amt.toLocaleString("fr-FR")} ${cur}`
+          : "À partir de —";
+      default:
+        return "Sur devis";
+    }
+  }, [selectedOffer, rt?.currency]);
+
   const partie1EmailWatch = form.watch("partie1Email");
   const userEmailForReset = useMemo(() => {
     if (partie1EmailWatch) return partie1EmailWatch;
@@ -361,22 +337,37 @@ const RedactionContratForm = () => {
     }
   }, [partie1EmailWatch]);
 
-  // Soumission
   const onSubmit = async (data: FormData) => {
     if (!selectedOffer?.key) {
       toast.error("Aucune offre sélectionnée", {
-        description:
-          "Veuillez revenir à la liste et choisir un type de contrat.",
+        description: "Choisissez un type de contrat.",
       });
       return;
     }
+
+    const fixedPrice =
+      selectedOffer.pricing_mode === "fixed" && selectedOffer.price != null
+        ? Number(selectedOffer.price)
+        : 0;
+    const shouldPayNow = fixedPrice > 0;
+
+    console.debug("[PAY] selectedOffer:", selectedOffer);
+    console.debug(
+      "[PAY] shouldPayNow:",
+      shouldPayNow,
+      "fixedPrice:",
+      fixedPrice
+    );
+
     try {
       const fd = new window.FormData();
       fd.append("type", "rediger-contrat");
       fd.append("variant_key", selectedOffer.key);
-      fd.append("urgent", "false");
 
-      // Identification
+      const effectiveCurrency = selectedOffer.currency || rt?.currency || "XOF";
+      fd.append("currency", effectiveCurrency);
+
+      // --- champs ...
       fd.append("data[partie1Nom]", data.partie1Nom);
       fd.append("data[partie1Adresse]", data.partie1Adresse);
       fd.append("data[partie1Identification]", data.partie1Identification);
@@ -384,139 +375,177 @@ const RedactionContratForm = () => {
         fd.append("data[partie1Representant]", data.partie1Representant);
       fd.append("data[partie1Telephone]", data.partie1Telephone);
       fd.append("data[partie1Email]", data.partie1Email);
-
-      // Objet
       fd.append("data[objetContrat]", data.objetContrat);
-
-      // Obligations
       fd.append("data[obligationsPartie1]", data.obligationsPartie1);
       fd.append("data[obligationsPartie2]", data.obligationsPartie2);
-
-      // Financier
       fd.append("data[montant]", data.montant);
       fd.append("data[modalitesPaiement]", data.modalitesPaiement);
       if (data.penalitesRetard)
         fd.append("data[penalitesRetard]", data.penalitesRetard);
-
-      // Durée
       fd.append("data[dateDebut]", data.dateDebut);
       fd.append("data[dureeContrat]", data.dureeContrat);
       fd.append("data[conditionsResiliation]", data.conditionsResiliation);
-
-      // Confidentialité & PI
       fd.append("data[confidentialite]", data.confidentialite);
       fd.append("data[proprieteIntellectuelle]", data.proprieteIntellectuelle);
       if (data.confidentialite === "oui" && data.clausesConfidentialite)
         fd.append("data[clausesConfidentialite]", data.clausesConfidentialite);
       if (data.proprieteIntellectuelle === "oui" && data.modalitesPI)
         fd.append("data[modalitesPI]", data.modalitesPI);
-
-      // Garanties
       fd.append("data[garanties]", data.garanties);
       if (data.responsabilite)
         fd.append("data[responsabilite]", data.responsabilite);
-
-      // Droit + litiges
       fd.append("data[droitApplicable]", data.droitApplicable);
       (data.reglementLitiges || []).forEach((t, i) =>
         fd.append(`data[reglementLitiges][${i}]`, t)
       );
 
-      // Trace de l’offre choisie — toujours présent dans data
+      // snapshot offre
+      fd.append("data[selected_preset][key]", selectedOffer.key);
       fd.append("data[selected_preset][label]", selectedOffer.title);
+      if (selectedOffer.subtitle)
+        fd.append("data[selected_preset][subtitle]", selectedOffer.subtitle);
+      if (selectedOffer.pill)
+        fd.append("data[selected_preset][pill]", selectedOffer.pill);
       fd.append(
         "data[selected_preset][pricing_mode]",
         selectedOffer.pricing_mode
       );
-      fd.append("data[selected_preset][currency]", selectedOffer.currency);
-      // même pour "Sur devis", on met la clé "price" (vide) pour qu’elle existe côté back
-      if (selectedOffer.price == null) {
-        fd.append("data[selected_preset][price]", "");
-      } else {
-        fd.append("data[selected_preset][price]", String(selectedOffer.price));
-      }
+      fd.append("data[selected_preset][currency]", effectiveCurrency);
+      fd.append(
+        "data[selected_preset][price]",
+        selectedOffer.price == null ? "" : String(selectedOffer.price)
+      );
+      (selectedOffer.features || []).forEach((f, i) =>
+        fd.append(`data[selected_preset][features][${i}]`, f)
+      );
+      if (selectedOffer.cta)
+        fd.append("data[selected_preset][cta]", selectedOffer.cta);
 
-      // Fichiers
       uploadedFiles.forEach((file) => fd.append("files[attachments][]", file));
 
       const { data: res } = await http.post("/demandes", fd, {
         headers: { "Content-Type": "multipart/form-data" },
       });
 
-      // ref sûre
-      const ref =
-        res?.ref ||
-        res?.data?.ref ||
-        res?.demande?.ref ||
-        res?.demande?.data?.ref ||
+      const createdId = res?.id ?? res?.data?.id ?? res?.demande?.id ?? null;
+      const createdRef =
+        res?.ref ??
+        res?.data?.ref ??
+        res?.demande?.ref ??
+        res?.demande?.data?.ref ??
         null;
 
-      // MAJ current_user si fourni
-      const updated = res?.updated_user;
-      if (updated) {
+      console.debug("[PAY] create /demandes res:", res);
+      console.debug("[PAY] createdId:", createdId, "createdRef:", createdRef);
+
+      // Protection anti-modal si on part en paiement
+      redirectedRef.current = false;
+
+      if (shouldPayNow && createdId) {
+        const [first, ...rest] = (data.partie1Nom || "").trim().split(/\s+/);
+        const customer = {
+          email: data.partie1Email,
+          firstName: first || "Client",
+          lastName: rest.join(" ") || "Inconnu",
+          phone: data.partie1Telephone,
+        };
+
         try {
-          const prev = localStorage.getItem("current_user");
-          const prevObj = prev ? JSON.parse(prev) : {};
-          const merged = { ...prevObj, ...updated };
-          localStorage.setItem("current_user", JSON.stringify(merged));
-        } catch {}
+          const pay = await initPayment({
+            type: "demande",
+            id: createdId,
+            customer,
+            // channel: "CARD",
+          });
+          console.debug("[PAY] initPayment response:", pay);
+
+          const action = pay?.action;
+          const fields = pay?.fields || {};
+          const method = (pay?.method as "POST" | "GET") || "POST";
+          const redirectUrl =
+            pay?.redirect_url ||
+            pay?.redirectUrl ||
+            pay?.url ||
+            pay?.checkoutUrl ||
+            pay?.payment_url;
+
+          if (redirectUrl && typeof redirectUrl === "string") {
+            redirectedRef.current = true;
+            toast.info("Redirection vers le paiement…");
+            window.location.assign(redirectUrl);
+            return;
+          }
+
+          if (action && typeof action === "string") {
+            redirectedRef.current = true;
+            toast.info("Redirection vers le paiement…");
+            autoPost(action, fields, method);
+            return;
+          }
+
+          console.warn(
+            "[PAY] Aucune clé utilisable pour rediriger (action/url manquants)."
+          );
+          toast.error("Paiement indisponible", {
+            description:
+              "Impossible de lancer la page de paiement. Réessayez depuis vos commandes.",
+          });
+        } catch (err: any) {
+          console.error("[PAY] initPayment error:", err);
+          toast.error("Paiement indisponible", {
+            description:
+              err?.message ||
+              "Impossible de démarrer le paiement. Vous pourrez payer plus tard.",
+          });
+        }
       }
 
-      setSuccessRef(ref);
-      setSuccessOpen(true);
+      if (!redirectedRef.current) {
+        setSuccessRef(createdRef);
+        setSuccessOpen(true);
+      }
     } catch (e: any) {
-      // Gestion des erreurs courantes
       const status = e?.response?.status;
       const msg =
         e?.response?.data?.message || e?.message || "Erreur lors de l’envoi.";
+      console.error("[PAY] submit error:", status, msg, e?.response?.data);
 
-      // Fichier trop lourd
       if (status === 413 || /too large|exceeds|payload/i.test(String(msg))) {
         toast.error("Fichier trop volumineux", {
-          description:
-            "Un ou plusieurs fichiers dépassent la taille autorisée. Réduisez la taille puis réessayez.",
+          description: "Réduisez la taille puis réessayez.",
         });
         return;
       }
-
-      // Fichier invalide “does not exist or is not readable”
       if (/does not exist|not readable/i.test(String(msg))) {
         toast.error("Fichier invalide", {
-          description:
-            "Un fichier sélectionné est invalide ou corrompu. Retirez-le et réessayez.",
+          description: "Retirez le fichier invalide puis réessayez.",
         });
         return;
       }
-
-      // 422 validations (variant_key, etc.)
       if (status === 422) {
-        const errors = e?.response?.data?.errors || {};
-        const vks: string[] = errors?.variant_key || [];
-        if (vks.length) {
-          toast.error("Variante invalide", {
-            description: vks.join(" "),
-          });
-          return;
-        }
-        // autre message 422 générique
-        toast.error("Formulaire incomplet", {
-          description: msg,
-        });
+        toast.error("Formulaire incomplet", { description: msg });
         return;
       }
-
-      // fallback
       toast.error("Envoi impossible", { description: msg });
     }
   };
 
-  // Rendu des étapes (textarea full width, autres en 2 colonnes sur desktop)
+  const stepsDef = [
+    { id: 1, title: "Identification", icon: FileText },
+    { id: 2, title: "Objet du contrat", icon: FileText },
+    { id: 3, title: "Obligations des parties", icon: FileCheck },
+    { id: 4, title: "Conditions financières", icon: CreditCard },
+    { id: 5, title: "Durée et résiliation", icon: Calendar },
+    { id: 6, title: "Confidentialité", icon: Shield },
+    { id: 7, title: "Garanties", icon: Scale },
+    { id: 8, title: "Droit applicable", icon: Gavel },
+  ];
+
   const renderStep = () => {
     switch (currentStep) {
       case 1:
         return (
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            {/* Col 6 / 12 */}
             <FormField
               control={form.control}
               name="partie1Nom"
@@ -533,7 +562,6 @@ const RedactionContratForm = () => {
                 </FormItem>
               )}
             />
-            {/* Col 6 / 12 */}
             <FormField
               control={form.control}
               name="partie1Identification"
@@ -552,7 +580,50 @@ const RedactionContratForm = () => {
                 </FormItem>
               )}
             />
-            {/* Col 12 textarea */}
+
+            <FormField
+              control={form.control}
+              name="partie1Representant"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Représentant légal (si personne morale)</FormLabel>
+                  <FormControl>
+                    <Input placeholder="Nom du représentant" {...field} />
+                  </FormControl>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+            <FormField
+              control={form.control}
+              name="partie1Telephone"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Téléphone</FormLabel>
+                  <FormControl>
+                    <Input placeholder="+225 01 23 45 67 89" {...field} />
+                  </FormControl>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+            <FormField
+              control={form.control}
+              name="partie1Email"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Email</FormLabel>
+                  <FormControl>
+                    <Input
+                      type="email"
+                      placeholder="email@example.com"
+                      {...field}
+                    />
+                  </FormControl>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
             <div className="md:col-span-2">
               <FormField
                 control={form.control}
@@ -572,55 +643,8 @@ const RedactionContratForm = () => {
                 )}
               />
             </div>
-            {/* Col 6 / 12 */}
-            <FormField
-              control={form.control}
-              name="partie1Representant"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Représentant légal (si personne morale)</FormLabel>
-                  <FormControl>
-                    <Input placeholder="Nom du représentant" {...field} />
-                  </FormControl>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-            {/* Téléphone (6) */}
-            <FormField
-              control={form.control}
-              name="partie1Telephone"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Téléphone</FormLabel>
-                  <FormControl>
-                    <Input placeholder="+225 01 23 45 67 89" {...field} />
-                  </FormControl>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-            {/* Email (6) */}
-            <FormField
-              control={form.control}
-              name="partie1Email"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Email</FormLabel>
-                  <FormControl>
-                    <Input
-                      type="email"
-                      placeholder="email@example.com"
-                      {...field}
-                    />
-                  </FormControl>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
           </div>
         );
-
       case 2:
         return (
           <div className="space-y-6">
@@ -643,7 +667,6 @@ const RedactionContratForm = () => {
             />
           </div>
         );
-
       case 3:
         return (
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -679,7 +702,6 @@ const RedactionContratForm = () => {
             </div>
           </div>
         );
-
       case 4:
         return (
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -691,6 +713,19 @@ const RedactionContratForm = () => {
                   <FormLabel>Montant ou tarif</FormLabel>
                   <FormControl>
                     <Input placeholder="Ex: 1 000 000 FCFA" {...field} />
+                  </FormControl>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+            <FormField
+              control={form.control}
+              name="penalitesRetard"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Pénalités de retard (optionnel)</FormLabel>
+                  <FormControl>
+                    <Input placeholder="Ex: 2% par jour de retard" {...field} />
                   </FormControl>
                   <FormMessage />
                 </FormItem>
@@ -711,22 +746,8 @@ const RedactionContratForm = () => {
                 )}
               />
             </div>
-            <FormField
-              control={form.control}
-              name="penalitesRetard"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Pénalités de retard (optionnel)</FormLabel>
-                  <FormControl>
-                    <Input placeholder="Ex: 2% par jour de retard" {...field} />
-                  </FormControl>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
           </div>
         );
-
       case 5:
         return (
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -750,10 +771,7 @@ const RedactionContratForm = () => {
                 <FormItem>
                   <FormLabel>Durée du contrat</FormLabel>
                   <FormControl>
-                    <Input
-                      placeholder="Ex: 12 mois, 2 ans, durée indéterminée"
-                      {...field}
-                    />
+                    <Input placeholder="Ex: 12 mois, indéterminée" {...field} />
                   </FormControl>
                   <FormMessage />
                 </FormItem>
@@ -776,7 +794,6 @@ const RedactionContratForm = () => {
             </div>
           </div>
         );
-
       case 6:
         return (
           <div className="space-y-6">
@@ -834,7 +851,7 @@ const RedactionContratForm = () => {
               render={({ field }) => (
                 <FormItem>
                   <FormLabel>
-                    Des droits de propriété intellectuelle sont-ils transférés ?
+                    Transfert de droits de propriété intellectuelle ?
                   </FormLabel>
                   <FormControl>
                     <RadioGroup
@@ -862,9 +879,7 @@ const RedactionContratForm = () => {
                 name="modalitesPI"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>
-                      Modalités de transfert de propriété intellectuelle
-                    </FormLabel>
+                    <FormLabel>Modalités de transfert</FormLabel>
                     <FormControl>
                       <Textarea
                         rows={4}
@@ -879,7 +894,6 @@ const RedactionContratForm = () => {
             )}
           </div>
         );
-
       case 7:
         return (
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -889,7 +903,7 @@ const RedactionContratForm = () => {
                 name="garanties"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>Garanties offertes par les parties</FormLabel>
+                    <FormLabel>Garanties offertes</FormLabel>
                     <FormControl>
                       <Textarea rows={4} placeholder="…" {...field} />
                     </FormControl>
@@ -905,7 +919,7 @@ const RedactionContratForm = () => {
                 render={({ field }) => (
                   <FormItem>
                     <FormLabel>
-                      Limitation / exclusion de responsabilité (optionnel)
+                      Limitation de responsabilité (optionnel)
                     </FormLabel>
                     <FormControl>
                       <Textarea rows={3} placeholder="…" {...field} />
@@ -917,7 +931,6 @@ const RedactionContratForm = () => {
             </div>
           </div>
         );
-
       case 8:
         return (
           <div className="space-y-6">
@@ -1001,7 +1014,6 @@ const RedactionContratForm = () => {
               )}
             />
 
-            {/* Documents */}
             <Card className="mt-2">
               <CardHeader>
                 <CardTitle className="flex items-center text-red-900">
@@ -1059,7 +1071,6 @@ const RedactionContratForm = () => {
             </Card>
           </div>
         );
-
       default:
         return null;
     }
@@ -1069,7 +1080,6 @@ const RedactionContratForm = () => {
     <div className="min-h-screen bg-gradient-to-br from-slate-50 to-red-50">
       <Header />
 
-      {/* Alerte "non connecté" */}
       {!isAuthenticated && (
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 mt-6">
           <Alert>
@@ -1089,7 +1099,6 @@ const RedactionContratForm = () => {
         </div>
       )}
 
-      {/* Bandeau offre sélectionnée */}
       {selectedOffer && (
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 mt-6">
           <Card>
@@ -1118,7 +1127,6 @@ const RedactionContratForm = () => {
         </div>
       )}
 
-      {/* Progress + Steps */}
       <div className="bg-white shadow-sm py-4 mt-6">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex items-center justify-between mb-4">
@@ -1173,7 +1181,6 @@ const RedactionContratForm = () => {
         </div>
       </div>
 
-      {/* Form */}
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         <Form {...form}>
           <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-8">
@@ -1189,7 +1196,6 @@ const RedactionContratForm = () => {
               <CardContent>{renderStep()}</CardContent>
             </Card>
 
-            {/* Navigation */}
             <div className="flex justify-between">
               <Button
                 type="button"
@@ -1229,17 +1235,13 @@ const RedactionContratForm = () => {
         </Form>
       </div>
 
-      {/* SUCCESS MODAL (identique esprit “se faire conseiller”) */}
       <Dialog
         open={successOpen}
         onOpenChange={(open) => {
           if (!open) {
-            // reset local form state
             form.reset();
             setUploadedFiles([]);
             setSuccessOpen(false);
-
-            // redirection après fermeture
             if (closeRedirect === "orders") {
               const url = successRef
                 ? `/client/commandes?ref=${encodeURIComponent(successRef)}`
@@ -1248,7 +1250,7 @@ const RedactionContratForm = () => {
               navigate(url);
             } else {
               setCloseRedirect(null);
-              navigate("/"); // accueil
+              navigate("/");
             }
           } else {
             setSuccessOpen(true);
@@ -1268,7 +1270,6 @@ const RedactionContratForm = () => {
               Merci ! Votre demande a bien été enregistrée. Conservez votre
               numéro de suivi.
             </p>
-
             <div className="rounded-lg border bg-gray-50 p-3 flex items-center justify-between">
               <div>
                 <p className="text-xs text-gray-500">Numéro de demande</p>
@@ -1281,11 +1282,11 @@ const RedactionContratForm = () => {
                   if (successRef) {
                     navigator.clipboard
                       .writeText(successRef)
-                      .then(() => {
+                      .then(() =>
                         toast.success("Copié !", {
                           description: "Numéro de demande copié.",
-                        });
-                      })
+                        })
+                      )
                       .catch(() => toast.success("Copié !"));
                   }
                 }}
@@ -1293,7 +1294,6 @@ const RedactionContratForm = () => {
                 <Copy className="h-4 w-4" />
               </Button>
             </div>
-
             <div className="text-sm text-gray-600">
               Vous pouvez suivre l’avancement et échanger avec votre juriste
               depuis votre espace.
@@ -1316,8 +1316,7 @@ const RedactionContratForm = () => {
                   " "
                 )}
                 . Pour accéder à votre espace, allez sur la page de connexion
-                puis utilisez <strong>« Mot de passe oublié »</strong> avec
-                votre adresse e-mail pour définir un mot de passe.
+                puis utilisez <strong>« Mot de passe oublié »</strong>.
               </p>
               <div className="flex flex-wrap gap-2 pt-2">
                 <Button variant="outline" asChild>

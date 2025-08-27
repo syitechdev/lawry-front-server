@@ -51,8 +51,9 @@ import {
   Loader2, // loader spinner
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
-import PaymentForm from "./PaymentForm";
 import { http } from "@/lib/http";
+import { initPayment } from "@/services/paymentApi";
+import { autoPost } from "@/utils/autoPost";
 
 export type ConsultationPreset = {
   key: string; // variant_key
@@ -307,13 +308,19 @@ const LegalConsultationForm: React.FC<Props> = ({ preset }) => {
 
   const onSubmit = async (data: FormValues) => {
     try {
-      setSubmitting(true); // start loader
+      setSubmitting(true);
 
+      // Paiement immédiat si une offre fixe avec un montant > 0 (ton modèle "preset")
+      const shouldPayNow =
+        typeof preset?.price === "number" && Number(preset.price) > 0;
+
+      // --- Construire le FormData pour /demandes
       const fd = new window.FormData();
       fd.append("type", "se-faire-conseiller");
       if (preset?.key) fd.append("variant_key", preset.key);
       fd.append("urgent", "false");
 
+      // Infos client
       fd.append("data[firstName]", data.firstName);
       fd.append("data[lastName]", data.lastName);
       fd.append("data[profession]", data.profession ?? "");
@@ -325,13 +332,17 @@ const LegalConsultationForm: React.FC<Props> = ({ preset }) => {
       fd.append("data[phone]", data.phone);
       fd.append("data[email]", data.email);
 
+      // Objet
       fd.append("data[legalDomain]", data.legalDomain);
       fd.append("data[counselType]", data.counselType);
+
+      // Description
       fd.append("data[factDescription]", data.factDescription);
       fd.append("data[legalQuestions]", data.legalQuestions);
       if (data.involvedParties)
         fd.append("data[involvedParties]", data.involvedParties);
 
+      // Docs
       fd.append("data[hasDocuments]", String(!!data.hasDocuments));
       (data.documentTypes ?? []).forEach((t, i) =>
         fd.append(`data[documentTypes][${i}]`, t)
@@ -339,37 +350,31 @@ const LegalConsultationForm: React.FC<Props> = ({ preset }) => {
       if (data.otherDocuments)
         fd.append("data[otherDocuments]", data.otherDocuments);
 
-      // trace de la formule choisie
+      // Snapshot de l’offre choisie (optionnel mais utile)
       if (preset?.label)
         fd.append("data[selected_preset][label]", preset.label);
       if (typeof preset?.price === "number")
         fd.append("data[selected_preset][price]", String(preset.price ?? 0));
+      if (preset?.currency)
+        fd.append("data[selected_preset][currency]", preset.currency);
 
-      // fichiers
+      // Fichiers
       if (uploadedFiles.length) {
         uploadedFiles.forEach((file) =>
           fd.append("files[attachments][]", file)
         );
       }
 
-      // POST
+      // --- Création de la demande
       const { data: res } = await http.post("/demandes", fd, {
         headers: { "Content-Type": "multipart/form-data" },
       });
 
-      // ref robuste
-      const ref =
-        res?.ref ||
-        res?.data?.ref ||
-        res?.demande?.ref ||
-        res?.demande?.data?.ref ||
-        null;
+      // Récup id + ref (tu as ajouté id côté Resource ✔️)
+      const createdId: number | null = res?.demande?.id ?? null;
+      const ref: string | null = res?.demande?.ref ?? null;
 
-      setCreatedRef(ref);
-      setSuccessRef(ref);
-      setSuccessOpen(true);
-
-      // MAJ localStorage si backend renvoie updated_user
+      // MAJ user localStorage si présent
       const updated = res?.updated_user;
       if (updated) {
         try {
@@ -379,15 +384,83 @@ const LegalConsultationForm: React.FC<Props> = ({ preset }) => {
           localStorage.setItem("current_user", JSON.stringify(merged));
         } catch {}
       }
+
+      // --- Paiement immédiat si nécessaire
+      if (shouldPayNow && (createdId || ref)) {
+        // Construire le client à partir du formulaire
+        const customer = {
+          email: data.email,
+          firstName: data.firstName || "Client",
+          lastName: data.lastName || "Inconnu",
+          phone: data.phone,
+        };
+
+        try {
+          // NB: l’endpoint est le même que l’autre page : /pay/demande/{id}
+          // Si tu veux supporter la ref (au cas où), adapte initPayment pour { ref } comme montré plus haut.
+          const pay = await initPayment({
+            type: "demande",
+            id: createdId ?? undefined,
+            // ref: createdId ? undefined : ref, // décommente si tu as une route /pay/demande/ref/{ref}
+            customer,
+          });
+
+          const action = pay?.action;
+          const fields = pay?.fields || {};
+          const method = (pay?.method as "POST" | "GET") || "POST";
+          const redirectUrl =
+            pay?.redirect_url ||
+            pay?.redirectUrl ||
+            pay?.url ||
+            pay?.checkoutUrl ||
+            pay?.payment_url;
+
+          if (redirectUrl && typeof redirectUrl === "string") {
+            // Redirection GET directe
+            window.location.assign(redirectUrl);
+            return; // on ne montre pas le modal
+          }
+          if (action && typeof action === "string") {
+            // Form auto-post (POST ou GET)
+            autoPost(action, fields, method);
+            return; // on ne montre pas le modal
+          }
+
+          // Fallback si pas de quoi rediriger
+          toast({
+            variant: "destructive",
+            title: "Paiement indisponible",
+            description:
+              "Impossible de lancer la page de paiement. Vous pourrez payer plus tard depuis vos commandes.",
+          });
+        } catch (err: any) {
+          toast({
+            variant: "destructive",
+            title: "Paiement indisponible",
+            description:
+              err?.message ||
+              "Impossible de démarrer le paiement. Vous pourrez payer plus tard depuis vos commandes.",
+          });
+        }
+      }
+
+      // --- Cas standard : afficher le modal
+      setCreatedRef(ref);
+      setSuccessRef(ref);
+      setSuccessOpen(true);
     } catch (e: any) {
+      // Gestion d’erreurs standard
+      const msg =
+        e?.response?.data?.message ||
+        e?.message ||
+        "Veuillez vérifier le formulaire.";
       toast({
         variant: "destructive",
         title: "Envoi impossible",
-        description:
-          e?.response?.data?.message || "Veuillez vérifier le formulaire.",
+        description: msg,
       });
     } finally {
-      setSubmitting(false); // stop loader
+      setSubmitting(false);
     }
   };
 

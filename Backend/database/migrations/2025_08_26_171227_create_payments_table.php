@@ -4,24 +4,23 @@ use Illuminate\Database\Migrations\Migration;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\Schema;
 
-return new class extends Migration {
+return new class extends Migration
+{
     public function up(): void
     {
         Schema::create('payments', function (Blueprint $table) {
             $table->id();
 
             $table->morphs('payable');
-            $table->string('reference', 64)->unique();
-
+            $table->string('reference', 100)->unique();
             $table->string('provider', 32)->default('paiementpro')->index();
             $table->string('session_id', 128)->nullable()->unique();
-
             $table->unsignedBigInteger('amount');
             $table->string('currency', 3)->default('XOF');
             $table->string('channel', 32)->nullable();
-
-            $table->string('customer_name')->nullable();
             $table->string('customer_email')->nullable();
+            $table->string('customer_first_name')->nullable();
+            $table->string('customer_last_name')->nullable();
             $table->string('customer_phone', 32)->nullable();
 
             // Statut interne
@@ -37,18 +36,17 @@ return new class extends Migration {
 
             $table->string('response_code', 32)->nullable();
             $table->string('response_message', 255)->nullable();
-
             $table->timestamp('initialized_at')->nullable();
             $table->timestamp('paid_at')->nullable();
             $table->timestamp('cancelled_at')->nullable();
             $table->timestamp('expires_at')->nullable();
 
-            $table->unsignedSmallInteger('notification_count')->default(0);
-            $table->timestamp('last_notified_at')->nullable();
-
+            // Données annexes: payloads, IP, retourContext, etc.
             $table->json('meta')->nullable();
 
             $table->timestamps();
+
+            // Index usuels
             $table->index(['status', 'created_at']);
             $table->index(['provider', 'channel']);
         });
@@ -60,6 +58,8 @@ return new class extends Migration {
             $table->json('payload')->nullable();
             $table->string('remote_ip', 45)->nullable();
             $table->timestamps();
+
+            $table->index(['payment_id', 'type']);
         });
     }
 

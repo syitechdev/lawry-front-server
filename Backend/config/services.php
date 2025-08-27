@@ -34,5 +34,14 @@ return [
             'channel' => env('SLACK_BOT_USER_DEFAULT_CHANNEL'),
         ],
     ],
+    'paiementpro' => [
+        'merchant_id'    => env('PMP_MERCHANT_ID'),
+        'secret'         => env('PMP_SECRET'),
+        'wsdl'           => env('PMP_WSDL'),
+        'processing_url' => env('PMP_PROCESSING_URL'),
+        'paychannel_url' => env('PMP_PAYCHANNEL_URL'),
+        'currency_code'  => env('PMP_CURRENCY_CODE', '952'),
+    ],
+
 
 ];
