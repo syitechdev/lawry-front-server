@@ -156,4 +156,22 @@ export const articlesApi = {
       headers: { Accept: "application/ld+json" },
     });
   },
+
+  async show(id: number | string): Promise<Article> {
+    const url =
+      typeof id === "string" && id.startsWith("/api/") ? id : `/articles/${id}`;
+    const { data } = await http.get(url, {
+      headers: { Accept: "application/ld+json" },
+    });
+    return fromApi(data);
+  },
+
+  async findBySlug(slug: string): Promise<Article | null> {
+    const { data } = await http.get(`/articles`, {
+      params: { slug, itemsPerPage: 1 },
+      headers: { Accept: "application/ld+json" },
+    });
+    const rows = extractMember(data).map((r: ArticleApi) => fromApi(r));
+    return rows[0] ?? null;
+  },
 };

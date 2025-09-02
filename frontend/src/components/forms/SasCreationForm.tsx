@@ -1,764 +1,1399 @@
+import React, { useEffect, useMemo, useState } from "react";
+import { useForm, useFieldArray } from "react-hook-form";
+import { zodResolver } from "@hookform/resolvers/zod";
+import * as z from "zod";
+import {
+  Link,
+  useLocation,
+  useNavigate,
+  useSearchParams,
+} from "react-router-dom";
 
-import React, { useState } from 'react';
+import { useToast } from "@/hooks/use-toast";
+import { http } from "@/lib/http";
+import { useFormAccessGuard } from "@/modules/demandes/useFormAccessGuard";
+import { useFormAutofill } from "@/modules/demandes/useFormAutofill";
+import DemandeSuccessModal from "@/modules/demandes/DemandeSuccessModal";
+
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import { Checkbox } from "@/components/ui/checkbox";
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
-import { ArrowLeft, ArrowRight, Building, Users, FileText, CheckCircle, Copy, Upload, X, Eye, EyeOff } from "lucide-react";
-import { toast } from "@/hooks/use-toast";
+import { Progress } from "@/components/ui/progress";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
+import {
+  Form,
+  FormControl,
+  FormField,
+  FormItem,
+  FormLabel,
+  FormMessage,
+} from "@/components/ui/form";
 
-interface SasFormData {
-  // Informations générales
-  denominationSociale: string;
-  siegeSocial: string;
-  telephone: string;
-  email: string;
-  duree: string;
-  capitalSocial: string;
-  objetSocial: string;
-  // Actionnaires
-  actionnaires: Array<{
-    nom: string;
-    nationalite: string;
-    adresse: string;
-    nombreActions: string;
-  }>;
-  // Représentation légale
-  president: {
-    nom: string;
-    adresse: string;
-    telephone: string;
-    email: string;
+import {
+  ArrowLeft,
+  ArrowRight,
+  Building,
+  Users,
+  User,
+  FileText,
+  Upload,
+  File,
+  Check,
+  X,
+  BadgePercent,
+  Lock,
+  Settings,
+} from "lucide-react";
+
+// -----------------------------
+// Types, helpers & pricing
+// -----------------------------
+
+type PricingMode = "fixed" | "from" | "quote";
+
+type SelectedOffer = {
+  key: string;
+  title: string;
+  pricing_mode: PricingMode;
+  price: number | null;
+  currency: string;
+} | null;
+
+type BackendOffer = {
+  key: string;
+  title: string;
+  pricing_mode: PricingMode;
+  currency: string;
+  price_display_abidjan: string;
+  price_display_interior: string;
+  price_amount_abidjan?: number | null;
+  price_amount_interior?: number | null;
+};
+
+async function initPaymentLocal({
+  id,
+  channel,
+  customer,
+  amount,
+  currency,
+}: {
+  id: number | string;
+  channel?: string;
+  customer?: {
+    email?: string;
+    firstName?: string;
+    lastName?: string;
+    phone?: string;
   };
-  // Modalités administratives
-  modeDecision: 'assemblee' | 'consultation';
-  organeGestion: 'president' | 'conseil';
-  // Documents
-  documents: Array<{
-    name: string;
-    file?: File;
-    checked: boolean;
-  }>;
+  amount: number;
+  currency: string;
+}) {
+  const body: any = {
+    ...(channel ? { channel } : {}),
+    ...(customer?.email
+      ? {
+          customerEmail: customer.email,
+          customerFirstName: customer.firstName,
+          customerLastName: customer.lastName,
+          customerPhoneNumber: customer.phone,
+        }
+      : {}),
+    amount,
+    currency,
+  };
+  const { data } = await http.post(
+    `/pay/demande/${encodeURIComponent(id)}`,
+    body,
+    { headers: { Accept: "application/json" } }
+  );
+  return data;
 }
 
-interface UserRegistrationData {
-  firstName: string;
-  lastName: string;
-  email: string;
-  phone: string;
-  password: string;
-  confirmPassword: string;
+function autoPostInline(
+  action: string,
+  fields: Record<string, any> = {},
+  method: "POST" | "GET" = "POST"
+) {
+  const form = document.createElement("form");
+  form.method = method;
+  form.action = action;
+  form.style.display = "none";
+  Object.entries(fields).forEach(([k, v]) => {
+    const input = document.createElement("input");
+    input.type = "hidden";
+    input.name = k;
+    input.value = String(v ?? "");
+    form.appendChild(input);
+  });
+  document.body.appendChild(form);
+  form.submit();
 }
 
-const SasCreationForm = () => {
+// -----------------------------
+// Zod schema
+// -----------------------------
+
+const shareholderSchema = z.object({
+  name: z.string().min(1, "Nom requis"),
+  nationality: z.string().min(1, "Nationalité requise"),
+  address: z.string().min(1, "Adresse requise"),
+  shares: z.string().min(1, "Nombre d'actions requis"),
+});
+
+const formSchema = z.object({
+  requestDate: z.string().min(1, "Date requise"),
+  creationLocation: z.string().min(1, "Lieu de création requis"),
+
+  companyName: z.string().min(1, "Dénomination sociale requise"),
+  headquarters: z.string().min(1, "Siège social requis"),
+  phone: z.string().min(1, "Téléphone requis"),
+  email: z.string().email("Email invalide"),
+  duration: z.string().min(1, "Durée requise"),
+  capital: z.string().min(1, "Capital social requis"),
+  activity: z.string().min(1, "Activité principale requise"),
+
+  shareholders: z.array(shareholderSchema).min(1, "Au moins un actionnaire"),
+
+  presidentName: z.string().min(1, "Nom et prénom du président requis"),
+  presidentAddress: z.string().min(1, "Adresse du président requise"),
+  presidentPhone: z.string().min(1, "Téléphone du président requis"),
+  presidentEmail: z.string().email("Email du président invalide"),
+
+  decisionMode: z.enum(["assemblee", "consultation"], {
+    required_error: "Mode de décision requis",
+  }),
+  governance: z.enum(["president", "conseil"], {
+    required_error: "Organe de gestion requis",
+  }),
+
+  userEmail: z.string().email("Email invalide").optional(),
+});
+
+export type FormDataSAS = z.infer<typeof formSchema>;
+
+// -----------------------------
+// Steps config (Méthode B)
+// -----------------------------
+
+type StepKey =
+  | "base"
+  | "company"
+  | "shareholders"
+  | "president"
+  | "governance"
+  | "documents"
+  | "email";
+
+const buildSteps = (isAuth: boolean) =>
+  [
+    { key: "base", title: "Informations de base" },
+    { key: "company", title: "Société" },
+    { key: "shareholders", title: "Actionnaires" },
+    { key: "president", title: "Représentation légale" },
+    { key: "governance", title: "Modalités administratives" },
+    { key: "documents", title: "Documents à joindre" },
+    ...(isAuth
+      ? []
+      : [{ key: "email" as const, title: "Votre email pour le suivi" }]),
+  ] as { key: StepKey; title: string }[];
+
+// -----------------------------
+// Component
+// -----------------------------
+
+const SasCreationForm: React.FC = () => {
+  const navigate = useNavigate();
+  const location = useLocation();
+  const [search] = useSearchParams();
+  const { toast } = useToast();
+
+  const formTypeSigle = "SAS";
+  const { blocked, reason, auth } = useFormAccessGuard();
+  const { apply } = useFormAutofill();
+
+  const stateOffer = (location.state as any)?.offer as
+    | SelectedOffer
+    | undefined;
+  const queryVariant =
+    search.get("variant") || search.get("offer") || undefined;
+
+  const [selectedOffer, setSelectedOffer] = useState<SelectedOffer>(
+    stateOffer ?? null
+  );
+  const [resolved, setResolved] = useState<BackendOffer | null>(null);
+
+  const [modalOpen, setModalOpen] = useState(false);
+  const [lastRef, setLastRef] = useState<string | null>(null);
+
+  // Fetch offer if provided via state/query
+  useEffect(() => {
+    const wantedKey = stateOffer?.key || queryVariant;
+    if (!wantedKey) return;
+    (async () => {
+      try {
+        const { data } = await http.get(
+          `/enterprise-types/${encodeURIComponent(formTypeSigle)}/offers`
+        );
+        const arr: BackendOffer[] = data?.offers || data?.items || [];
+        const found = arr.find((o) => o.key === wantedKey);
+        if (found) {
+          setResolved(found);
+          setSelectedOffer({
+            key: found.key,
+            title: found.title,
+            pricing_mode: found.pricing_mode,
+            price:
+              found.pricing_mode === "quote"
+                ? null
+                : found.price_amount_abidjan ??
+                  found.price_amount_interior ??
+                  null,
+            currency: found.currency || "XOF",
+          });
+        }
+      } catch {}
+    })();
+  }, []);
+
+  const form = useForm<FormDataSAS>({
+    resolver: zodResolver(formSchema),
+    defaultValues: {
+      requestDate: new Date().toISOString().split("T")[0],
+      creationLocation: "",
+      companyName: "",
+      headquarters: "",
+      phone: "",
+      email: "",
+      duration: "",
+      capital: "",
+      activity: "",
+      shareholders: [{ name: "", nationality: "", address: "", shares: "" }],
+      presidentName: "",
+      presidentAddress: "",
+      presidentPhone: "",
+      presidentEmail: "",
+      decisionMode: "assemblee",
+      governance: "president",
+    },
+    mode: "onTouched",
+  });
+
+  // Autofill convenience
+  useEffect(() => {
+    apply(form.setValue, {
+      phone: "phone",
+      email: "email",
+      address: "headquarters",
+    });
+    try {
+      const me = JSON.parse(localStorage.getItem("current_user") || "{}");
+      if (me?.email)
+        form.setValue("presidentEmail", me.email, { shouldDirty: false });
+      if (me?.phone)
+        form.setValue("presidentPhone", me.phone, { shouldDirty: false });
+    } catch {}
+  }, []);
+
+  // Shareholders field array
+  const { fields, append, remove } = useFieldArray({
+    control: form.control,
+    name: "shareholders",
+  });
+
+  // Uploads map (by document key)
+  const [uploadedFiles, setUploadedFiles] = useState<Record<string, File[]>>(
+    {}
+  );
+  const handleFileUpload = (documentType: string, files: FileList | null) => {
+    if (!files?.length) return;
+    const arr = Array.from(files);
+    setUploadedFiles((prev) => ({
+      ...prev,
+      [documentType]: [...(prev[documentType] || []), ...arr],
+    }));
+    toast({
+      title: "Fichier(s) ajouté(s)",
+      description: `${arr.length} fichier(s) pour ${documentType}`,
+    });
+  };
+  const removeFile = (documentType: string, fileIndex: number) => {
+    setUploadedFiles((prev) => ({
+      ...prev,
+      [documentType]:
+        prev[documentType]?.filter((_, i) => i !== fileIndex) || [],
+    }));
+  };
+
+  // Steps (METHOD B)
+  const steps = useMemo(() => buildSteps(!!auth), [auth]);
+  const totalSteps = steps.length;
   const [currentStep, setCurrentStep] = useState(1);
-  const [generatedCode, setGeneratedCode] = useState('');
-  const [showRegistrationModal, setShowRegistrationModal] = useState(false);
-  const [isLoggedIn, setIsLoggedIn] = useState(false);
-  const [showPassword, setShowPassword] = useState(false);
-  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
-  const [registrationData, setRegistrationData] = useState<UserRegistrationData>({
-    firstName: '',
-    lastName: '',
-    email: '',
-    phone: '',
-    password: '',
-    confirmPassword: ''
-  });
+  const progress = (currentStep / totalSteps) * 100;
+  const isFinalStep = currentStep === totalSteps;
+  const currentKey = steps[currentStep - 1]?.key;
+  const currentTitle = steps[currentStep - 1]?.title ?? "";
 
-  const [formData, setFormData] = useState<SasFormData>({
-    denominationSociale: '',
-    siegeSocial: '',
-    telephone: '',
-    email: '',
-    duree: '',
-    capitalSocial: '',
-    objetSocial: '',
-    actionnaires: [{ nom: '', nationalite: '', adresse: '', nombreActions: '' }],
-    president: { nom: '', adresse: '', telephone: '', email: '' },
-    modeDecision: 'assemblee',
-    organeGestion: 'president',
-    documents: [
-      { name: 'Projet de statuts', checked: false },
-      { name: 'Déclaration des souscriptions et libérations', checked: false },
-      { name: 'Liste des actionnaires', checked: false },
-      { name: 'Justificatif de domiciliation', checked: false },
-      { name: 'Attestation de dépôt des fonds', checked: false }
-    ]
-  });
+  // Pricing selection
+  const isQuote = selectedOffer?.pricing_mode === "quote";
+  const zoneValue = form.watch("creationLocation");
 
-  const totalSteps = 6;
+  const selectedAmount = useMemo<number | null>(() => {
+    if (!resolved || isQuote) return null;
+    const v = zoneValue?.toLowerCase();
+    if (v === "abidjan") return resolved.price_amount_abidjan ?? null;
+    if (v === "intérieur" || v === "interieur" || v === "interior")
+      return resolved.price_amount_interior ?? null;
+    return null;
+  }, [resolved, isQuote, zoneValue]);
 
-  const generateCode = () => {
-    const code = `SAS-${Date.now().toString().slice(-6)}`;
-    setGeneratedCode(code);
-    toast({
-      title: "Code généré avec succès",
-      description: `Votre code de demande : ${code}`,
-    });
-  };
+  const selectedDisplay = useMemo<string>(() => {
+    if (!resolved || isQuote) return "Sur devis";
+    const v = zoneValue?.toLowerCase();
+    if (v === "abidjan") return resolved.price_display_abidjan || "—";
+    if (v === "intérieur" || v === "interieur" || v === "interior")
+      return resolved.price_display_interior || "—";
+    return "—";
+  }, [resolved, isQuote, zoneValue]);
 
-  const addActionnaire = () => {
-    if (formData.actionnaires.length < 5) {
-      setFormData({
-        ...formData,
-        actionnaires: [...formData.actionnaires, { nom: '', nationalite: '', adresse: '', nombreActions: '' }]
-      });
-    }
-  };
+  const priceBlock = useMemo(() => {
+    if (!resolved) return null;
+    return (
+      <div className="flex flex-col md:flex-row md:items-center md:gap-8">
+        <div className="text-sm text-gray-500">Tarifs</div>
+        <div className="flex flex-col md:flex-row md:gap-6">
+          <div className="text-base">
+            <span className="text-gray-600 mr-2">Abidjan:</span>
+            <span className="font-semibold">
+              {resolved.price_display_abidjan || "—"}
+            </span>
+          </div>
+          <div className="text-base">
+            <span className="text-gray-600 mr-2">Intérieur:</span>
+            <span className="font-semibold">
+              {resolved.price_display_interior || "—"}
+            </span>
+          </div>
+          {selectedOffer?.pricing_mode !== "quote" && (
+            <div className="text-base">
+              <span className="text-gray-600 mr-2">Sélection:</span>
+              <span className="font-semibold">{selectedDisplay}</span>
+            </div>
+          )}
+        </div>
+      </div>
+    );
+  }, [resolved, selectedOffer?.pricing_mode, selectedDisplay]);
 
-  const removeActionnaire = (index: number) => {
-    if (formData.actionnaires.length > 1) {
-      setFormData({
-        ...formData,
-        actionnaires: formData.actionnaires.filter((_, i) => i !== index)
-      });
-    }
-  };
-
-  const updateActionnaire = (index: number, field: string, value: string) => {
-    const newActionnaires = [...formData.actionnaires];
-    newActionnaires[index] = { ...newActionnaires[index], [field]: value };
-    setFormData({ ...formData, actionnaires: newActionnaires });
-  };
-
-  const toggleDocument = (index: number) => {
-    const newDocuments = [...formData.documents];
-    newDocuments[index] = { ...newDocuments[index], checked: !newDocuments[index].checked };
-    setFormData({ ...formData, documents: newDocuments });
-  };
-
-  const handleFileUpload = (index: number, file: File | null) => {
-    const newDocuments = [...formData.documents];
-    if (file) {
-      newDocuments[index] = { ...newDocuments[index], file, checked: true };
-      toast({
-        title: "Fichier téléchargé",
-        description: `${file.name} a été ajouté avec succès`,
-      });
-    } else {
-      newDocuments[index] = { ...newDocuments[index], file: undefined };
-    }
-    setFormData({ ...formData, documents: newDocuments });
-  };
-
-  const handleRegistration = () => {
-    if (registrationData.password !== registrationData.confirmPassword) {
-      toast({
-        title: "Erreur",
-        description: "Les mots de passe ne correspondent pas",
-        variant: "destructive"
-      });
-      return;
-    }
-
-    // Simuler la création de compte
-    setIsLoggedIn(true);
-    setShowRegistrationModal(false);
-    toast({
-      title: "Compte créé avec succès",
-      description: "Vous êtes maintenant connecté et pouvez soumettre votre demande",
-    });
-  };
-
-  const handleSubmit = () => {
-    if (!isLoggedIn) {
-      setShowRegistrationModal(true);
-      return;
-    }
-
-    toast({
-      title: "Demande soumise",
-      description: "Votre demande de création de SAS a été soumise avec succès.",
-    });
-  };
-
-  const copyCode = () => {
-    navigator.clipboard.writeText(generatedCode);
-    toast({
-      title: "Code copié",
-      description: "Le code a été copié dans le presse-papiers",
-    });
-  };
-
-  const nextStep = () => {
-    if (currentStep < totalSteps) {
-      setCurrentStep(currentStep + 1);
-    }
-  };
-
-  const prevStep = () => {
-    if (currentStep > 1) {
-      setCurrentStep(currentStep - 1);
-    }
-  };
-
-  const renderStep = () => {
-    switch (currentStep) {
-      case 1:
-        return (
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center">
-                <Building className="mr-2 h-5 w-5" />
-                Informations Générales sur la Société
-              </CardTitle>
-              <CardDescription>
-                Renseignez les informations de base de votre SAS
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <div>
-                <Label htmlFor="denominationSociale">Dénomination Sociale *</Label>
-                <Input
-                  id="denominationSociale"
-                  value={formData.denominationSociale}
-                  onChange={(e) => setFormData({ ...formData, denominationSociale: e.target.value })}
-                  placeholder="Ex: INNOVATION TECH SAS"
-                />
-              </div>
-              <div>
-                <Label htmlFor="siegeSocial">Siège Social *</Label>
-                <Input
-                  id="siegeSocial"
-                  value={formData.siegeSocial}
-                  onChange={(e) => setFormData({ ...formData, siegeSocial: e.target.value })}
-                  placeholder="Adresse complète du siège social"
-                />
-              </div>
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <Label htmlFor="telephone">Téléphone *</Label>
-                  <Input
-                    id="telephone"
-                    value={formData.telephone}
-                    onChange={(e) => setFormData({ ...formData, telephone: e.target.value })}
-                    placeholder="+33 1 23 45 67 89"
-                  />
-                </div>
-                <div>
-                  <Label htmlFor="email">Email *</Label>
-                  <Input
-                    id="email"
-                    type="email"
-                    value={formData.email}
-                    onChange={(e) => setFormData({ ...formData, email: e.target.value })}
-                    placeholder="contact@entreprise.com"
-                  />
-                </div>
-              </div>
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <Label htmlFor="duree">Durée de la société (années) *</Label>
-                  <Input
-                    id="duree"
-                    value={formData.duree}
-                    onChange={(e) => setFormData({ ...formData, duree: e.target.value })}
-                    placeholder="99"
-                  />
-                </div>
-                <div>
-                  <Label htmlFor="capitalSocial">Capital Social (€) *</Label>
-                  <Input
-                    id="capitalSocial"
-                    value={formData.capitalSocial}
-                    onChange={(e) => setFormData({ ...formData, capitalSocial: e.target.value })}
-                    placeholder="1000"
-                  />
-                </div>
-              </div>
-              <div>
-                <Label htmlFor="objetSocial">Activité principale / Objet social *</Label>
-                <Textarea
-                  id="objetSocial"
-                  value={formData.objetSocial}
-                  onChange={(e) => setFormData({ ...formData, objetSocial: e.target.value })}
-                  placeholder="Décrivez l'activité principale de votre société"
-                  rows={3}
-                />
-              </div>
-            </CardContent>
-          </Card>
-        );
-
-      case 2:
-        return (
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center">
-                <Users className="mr-2 h-5 w-5" />
-                Actionnaires Fondateurs
-              </CardTitle>
-              <CardDescription>
-                Ajoutez les informations des actionnaires fondateurs
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-6">
-              {formData.actionnaires.map((actionnaire, index) => (
-                <div key={index} className="border rounded-lg p-4 space-y-4">
-                  <div className="flex justify-between items-center">
-                    <h3 className="font-semibold">Actionnaire {index + 1}</h3>
-                    {formData.actionnaires.length > 1 && (
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => removeActionnaire(index)}
-                      >
-                        Supprimer
-                      </Button>
-                    )}
-                  </div>
-                  <div className="grid grid-cols-2 gap-4">
-                    <div>
-                      <Label>Nom et Prénom *</Label>
-                      <Input
-                        value={actionnaire.nom}
-                        onChange={(e) => updateActionnaire(index, 'nom', e.target.value)}
-                        placeholder="Jean Dupont"
-                      />
-                    </div>
-                    <div>
-                      <Label>Nationalité *</Label>
-                      <Input
-                        value={actionnaire.nationalite}
-                        onChange={(e) => updateActionnaire(index, 'nationalite', e.target.value)}
-                        placeholder="Française"
-                      />
-                    </div>
-                  </div>
-                  <div>
-                    <Label>Adresse *</Label>
-                    <Input
-                      value={actionnaire.adresse}
-                      onChange={(e) => updateActionnaire(index, 'adresse', e.target.value)}
-                      placeholder="Adresse complète"
-                    />
-                  </div>
-                  <div>
-                    <Label>Nombre d'actions *</Label>
-                    <Input
-                      value={actionnaire.nombreActions}
-                      onChange={(e) => updateActionnaire(index, 'nombreActions', e.target.value)}
-                      placeholder="100"
-                    />
-                  </div>
-                </div>
-              ))}
-              {formData.actionnaires.length < 5 && (
-                <Button onClick={addActionnaire} variant="outline" className="w-full">
-                  Ajouter un actionnaire
-                </Button>
-              )}
-            </CardContent>
-          </Card>
-        );
-
-      case 3:
-        return (
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center">
-                <Users className="mr-2 h-5 w-5" />
-                Représentation Légale
-              </CardTitle>
-              <CardDescription>
-                Informations sur le président de la SAS
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <div>
-                <Label htmlFor="presidentNom">Nom et Prénom du Président *</Label>
-                <Input
-                  id="presidentNom"
-                  value={formData.president.nom}
-                  onChange={(e) => setFormData({ 
-                    ...formData, 
-                    president: { ...formData.president, nom: e.target.value }
-                  })}
-                  placeholder="Jean Dupont"
-                />
-              </div>
-              <div>
-                <Label htmlFor="presidentAdresse">Adresse *</Label>
-                <Input
-                  id="presidentAdresse"
-                  value={formData.president.adresse}
-                  onChange={(e) => setFormData({ 
-                    ...formData, 
-                    president: { ...formData.president, adresse: e.target.value }
-                  })}
-                  placeholder="Adresse complète du président"
-                />
-              </div>
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <Label htmlFor="presidentTelephone">Téléphone *</Label>
-                  <Input
-                    id="presidentTelephone"
-                    value={formData.president.telephone}
-                    onChange={(e) => setFormData({ 
-                      ...formData, 
-                      president: { ...formData.president, telephone: e.target.value }
-                    })}
-                    placeholder="+33 1 23 45 67 89"
-                  />
-                </div>
-                <div>
-                  <Label htmlFor="presidentEmail">Email *</Label>
-                  <Input
-                    id="presidentEmail"
-                    type="email"
-                    value={formData.president.email}
-                    onChange={(e) => setFormData({ 
-                      ...formData, 
-                      president: { ...formData.president, email: e.target.value }
-                    })}
-                    placeholder="president@entreprise.com"
-                  />
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-        );
-
-      case 4:
-        return (
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center">
-                <FileText className="mr-2 h-5 w-5" />
-                Modalités Administratives
-              </CardTitle>
-              <CardDescription>
-                Définissez les modalités de fonctionnement de votre SAS
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-6">
-              <div>
-                <Label className="text-base font-medium">Mode de décision *</Label>
-                <div className="mt-2 space-y-2">
-                  <div className="flex items-center space-x-2">
-                    <Checkbox
-                      id="assemblee"
-                      checked={formData.modeDecision === 'assemblee'}
-                      onCheckedChange={() => setFormData({ ...formData, modeDecision: 'assemblee' })}
-                    />
-                    <Label htmlFor="assemblee">Assemblée générale</Label>
-                  </div>
-                  <div className="flex items-center space-x-2">
-                    <Checkbox
-                      id="consultation"
-                      checked={formData.modeDecision === 'consultation'}
-                      onCheckedChange={() => setFormData({ ...formData, modeDecision: 'consultation' })}
-                    />
-                    <Label htmlFor="consultation">Décision par consultation écrite</Label>
-                  </div>
-                </div>
-              </div>
-              <div>
-                <Label className="text-base font-medium">Organe de gestion *</Label>
-                <div className="mt-2 space-y-2">
-                  <div className="flex items-center space-x-2">
-                    <Checkbox
-                      id="president"
-                      checked={formData.organeGestion === 'president'}
-                      onCheckedChange={() => setFormData({ ...formData, organeGestion: 'president' })}
-                    />
-                    <Label htmlFor="president">Président seul</Label>
-                  </div>
-                  <div className="flex items-center space-x-2">
-                    <Checkbox
-                      id="conseil"
-                      checked={formData.organeGestion === 'conseil'}
-                      onCheckedChange={() => setFormData({ ...formData, organeGestion: 'conseil' })}
-                    />
-                    <Label htmlFor="conseil">Conseil d'administration</Label>
-                  </div>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-        );
-
-      case 5:
-        return (
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center">
-                <Upload className="mr-2 h-5 w-5" />
-                Documents à Joindre
-              </CardTitle>
-              <CardDescription>
-                Téléchargez vos documents ou cochez ceux que vous souhaitez que nous préparions
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <div className="space-y-4">
-                {formData.documents.map((document, index) => (
-                  <div key={document.name} className="border rounded-lg p-4 space-y-3">
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center space-x-2">
-                        <Checkbox
-                          id={`doc-${index}`}
-                          checked={document.checked}
-                          onCheckedChange={() => toggleDocument(index)}
-                        />
-                        <Label htmlFor={`doc-${index}`} className="font-medium">
-                          {document.name}
-                        </Label>
-                      </div>
-                      {document.file && (
-                        <div className="flex items-center space-x-2 text-green-600">
-                          <CheckCircle className="h-4 w-4" />
-                          <span className="text-sm">{document.file.name}</span>
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            onClick={() => handleFileUpload(index, null)}
-                          >
-                            <X className="h-4 w-4" />
-                          </Button>
-                        </div>
-                      )}
-                    </div>
-                    <div className="flex items-center space-x-4">
-                      <div className="flex-1">
-                        <Input
-                          type="file"
-                          accept=".pdf,.doc,.docx,.jpg,.jpeg,.png"
-                          onChange={(e) => {
-                            const file = e.target.files?.[0];
-                            if (file) {
-                              handleFileUpload(index, file);
-                            }
-                          }}
-                          className="file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-semibold file:bg-red-50 file:text-red-700 hover:file:bg-red-100"
-                        />
-                      </div>
-                      <span className="text-sm text-gray-500">ou</span>
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => toggleDocument(index)}
-                        className={document.checked && !document.file ? "bg-blue-50 border-blue-200" : ""}
-                      >
-                        {document.checked && !document.file ? "✓ À préparer" : "Nous préparons"}
-                      </Button>
-                    </div>
-                  </div>
-                ))}
-              </div>
-              <div className="mt-6 p-4 bg-blue-50 border border-blue-200 rounded-lg">
-                <h4 className="font-semibold text-blue-800 mb-2">Information importante</h4>
-                <p className="text-sm text-blue-700">
-                  Vous pouvez télécharger vos documents maintenant ou demander à notre équipe de les préparer. 
-                  Les formats acceptés : PDF, DOC, DOCX, JPG, PNG (max 10MB par fichier).
-                </p>
-              </div>
-            </CardContent>
-          </Card>
-        );
-
-      case 6:
-        return (
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center">
-                <CheckCircle className="mr-2 h-5 w-5" />
-                Récapitulatif et Génération du Code
-              </CardTitle>
-              <CardDescription>
-                Vérifiez vos informations et générez votre code de demande
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-6">
-              <div className="bg-gray-50 p-4 rounded-lg space-y-2">
-                <h3 className="font-semibold">Informations de la société</h3>
-                <p><strong>Dénomination:</strong> {formData.denominationSociale}</p>
-                <p><strong>Siège social:</strong> {formData.siegeSocial}</p>
-                <p><strong>Capital social:</strong> {formData.capitalSocial} €</p>
-                <p><strong>Nombre d'actionnaires:</strong> {formData.actionnaires.length}</p>
-                <p><strong>Président:</strong> {formData.president.nom}</p>
-                <p><strong>Documents sélectionnés:</strong> {formData.documents.filter(doc => doc.checked).length}/5</p>
-                <p><strong>Documents téléchargés:</strong> {formData.documents.filter(doc => doc.file).length}/5</p>
-              </div>
-              
-              {generatedCode ? (
-                <div className="bg-green-50 border border-green-200 p-4 rounded-lg">
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <h3 className="font-semibold text-green-800">Code de demande généré</h3>
-                      <p className="text-2xl font-mono font-bold text-green-600">{generatedCode}</p>
-                    </div>
-                    <Button onClick={copyCode} variant="outline" size="sm">
-                      <Copy className="h-4 w-4 mr-2" />
-                      Copier
-                    </Button>
-                  </div>
-                  <p className="text-sm text-green-700 mt-2">
-                    Conservez ce code précieusement. Il vous sera demandé pour suivre votre dossier.
-                  </p>
-                </div>
-              ) : (
-                <div className="text-center">
-                  <Button onClick={generateCode} size="lg" className="bg-green-600 hover:bg-green-700">
-                    <CheckCircle className="mr-2 h-5 w-5" />
-                    Générer le code de demande
-                  </Button>
-                </div>
-              )}
-            </CardContent>
-          </Card>
-        );
-
+  // Validation mapping per step key
+  const getFieldsForStep = (key?: StepKey): (keyof FormDataSAS)[] => {
+    switch (key) {
+      case "base":
+        return ["requestDate", "creationLocation"];
+      case "company":
+        return [
+          "companyName",
+          "headquarters",
+          "phone",
+          "email",
+          "duration",
+          "capital",
+          "activity",
+        ];
+      case "shareholders":
+        return ["shareholders"] as any;
+      case "president":
+        return [
+          "presidentName",
+          "presidentAddress",
+          "presidentPhone",
+          "presidentEmail",
+        ];
+      case "governance":
+        return ["decisionMode", "governance"];
+      case "documents":
+        return [];
+      case "email":
+        return auth ? [] : ["userEmail"];
       default:
-        return null;
+        return [];
+    }
+  };
+
+  const nextStep = async () => {
+    const ok = await form.trigger(getFieldsForStep(currentKey), {
+      shouldFocus: true,
+    });
+    if (ok) setCurrentStep((s) => Math.min(s + 1, totalSteps));
+  };
+  const prevStep = () => setCurrentStep((s) => Math.max(1, s - 1));
+
+  // Documents list (sans "Liste des actionnaires")
+  const documentTypes = [
+    { key: "statuts", label: "Projet de statuts", required: true },
+    {
+      key: "souscriptions",
+      label: "Déclaration des souscriptions et libérations",
+      required: true,
+    },
+    {
+      key: "domiciliation",
+      label: "Justificatif de domiciliation",
+      required: true,
+    },
+    {
+      key: "depot_fonds",
+      label: "Attestation de dépôt des fonds",
+      required: false,
+    },
+  ];
+
+  // -----------------------------
+  // Submit
+  // -----------------------------
+  const onSubmit = async (values: FormDataSAS) => {
+    if (!selectedOffer?.key) {
+      toast({
+        variant: "destructive",
+        title: "Aucune offre sélectionnée",
+        description:
+          "Retournez à la page des offres pour choisir une formule SAS.",
+      });
+      return;
+    }
+
+    try {
+      const fd = new FormData();
+      fd.append("type", "creer-entreprise");
+      fd.append("data[enterprise_type_sigle]", formTypeSigle);
+      fd.append("variant_key", `${formTypeSigle}:${selectedOffer.key}`);
+
+      // Base
+      fd.append("data[requestDate]", values.requestDate);
+      fd.append("data[creationLocation]", values.creationLocation);
+
+      // Société
+      fd.append("data[companyName]", values.companyName);
+      fd.append("data[headquarters]", values.headquarters);
+      fd.append("data[phone]", values.phone);
+      fd.append("data[email]", values.email);
+      fd.append("data[duration]", values.duration);
+      fd.append("data[capital]", values.capital);
+      fd.append("data[activity]", values.activity);
+
+      // Actionnaires
+      values.shareholders.forEach((sh, i) => {
+        fd.append(`data[shareholders][${i}][name]`, sh.name);
+        fd.append(`data[shareholders][${i}][nationality]`, sh.nationality);
+        fd.append(`data[shareholders][${i}][address]`, sh.address);
+        fd.append(`data[shareholders][${i}][shares]`, sh.shares);
+      });
+
+      // Président
+      fd.append("data[president][name]", values.presidentName);
+      fd.append("data[president][address]", values.presidentAddress);
+      fd.append("data[president][phone]", values.presidentPhone);
+      fd.append("data[president][email]", values.presidentEmail);
+
+      // Modalités
+      fd.append("data[decisionMode]", values.decisionMode);
+      fd.append("data[governance]", values.governance);
+
+      // Offre & pricing
+      fd.append("data[selected_preset][label]", selectedOffer.title);
+      fd.append(
+        "data[selected_preset][pricing_mode]",
+        selectedOffer.pricing_mode
+      );
+      fd.append("data[selected_preset][currency]", selectedOffer.currency);
+
+      const isQuoteLocal = selectedOffer.pricing_mode === "quote";
+      const currency = selectedOffer.currency || "XOF";
+      if (!isQuoteLocal) {
+        const zone =
+          values.creationLocation?.toLowerCase() === "abidjan"
+            ? "abidjan"
+            : "interior";
+        fd.append("data[selected_preset][zone]", zone);
+        if (resolved) {
+          fd.append(
+            "data[selected_preset][abidjan_display]",
+            resolved.price_display_abidjan || ""
+          );
+          fd.append(
+            "data[selected_preset][interior_display]",
+            resolved.price_display_interior || ""
+          );
+        }
+        if (selectedAmount != null) {
+          fd.append(
+            "data[selected_preset][selected_price]",
+            String(selectedAmount)
+          );
+          fd.append("data[selected_preset][selected_display]", selectedDisplay);
+        }
+        // Hints de paiement
+        fd.append("currency", currency);
+        fd.append("data[price][mode]", "fixed");
+        fd.append("data[price][amount]", String(selectedAmount ?? 0));
+        fd.append("data[price][currency]", currency);
+        fd.append("data[payment][amount]", String(selectedAmount ?? 0));
+        fd.append("data[payment][currency]", currency);
+        fd.append("data[amount]", String(selectedAmount ?? 0));
+        fd.append("data[price_amount]", String(selectedAmount ?? 0));
+        fd.append("data[total_amount]", String(selectedAmount ?? 0));
+        fd.append("data[montant]", String(selectedAmount ?? 0));
+        fd.append("data[paiement][amount]", String(selectedAmount ?? 0));
+        fd.append("data[paiement][currency]", currency);
+      } else {
+        fd.append("data[selected_preset][selected_price]", "");
+        fd.append("data[selected_preset][selected_display]", "Sur devis");
+      }
+
+      // Fichiers
+      Object.values(uploadedFiles).forEach((arr) =>
+        (arr || []).forEach((f) => fd.append("files[attachments][]", f))
+      );
+
+      // Email invité
+      if (!auth && values.userEmail) fd.set("data[email]", values.userEmail);
+
+      const { data: res } = await http.post("/demandes", fd, {
+        headers: { "Content-Type": "multipart/form-data" },
+      });
+
+      const createdId: number | null = res?.demande?.id ?? res?.id ?? null;
+      const ref: string | null = res?.demande?.ref ?? res?.ref ?? null;
+
+      const isFixed = selectedOffer?.pricing_mode === "fixed";
+      if (
+        isFixed &&
+        selectedAmount != null &&
+        Number(selectedAmount) > 0 &&
+        createdId
+      ) {
+        try {
+          const pay = await initPaymentLocal({
+            id: createdId,
+            channel: "paiementpro",
+            customer: {
+              email: values.email,
+              firstName: values.presidentName?.split(" ")?.[0] || "Client",
+              lastName:
+                values.presidentName?.split(" ")?.slice(1).join(" ") || "SAS",
+              phone: values.phone,
+            },
+            amount: Number(selectedAmount),
+            currency: selectedOffer?.currency || "XOF",
+          });
+          const redirectUrl =
+            pay?.redirect_url ||
+            pay?.redirect?.url ||
+            pay?.url ||
+            pay?.checkoutUrl ||
+            pay?.payment_url;
+          if (redirectUrl && typeof redirectUrl === "string") {
+            window.location.assign(redirectUrl);
+            return;
+          }
+          const action = pay?.action || pay?.redirect?.action;
+          const fields = pay?.fields || pay?.redirect?.fields;
+          const method = (
+            pay?.method ||
+            pay?.redirect?.method ||
+            "POST"
+          ).toUpperCase() as "POST" | "GET";
+          if (action && typeof action === "string") {
+            autoPostInline(action, fields || {}, method);
+            return;
+          }
+          if (pay?.html) {
+            document.open();
+            document.write(String(pay.html));
+            document.close();
+            return;
+          }
+        } catch {}
+      } else {
+        setLastRef(ref || null);
+        setModalOpen(true);
+        return;
+      }
+
+      toast({
+        title: "Demande soumise",
+        description: ref
+          ? `Votre demande (${ref}) a été enregistrée.`
+          : "Votre demande a été enregistrée.",
+      });
+      form.reset();
+      setUploadedFiles({});
+      setCurrentStep(1);
+    } catch (e: any) {
+      const status = e?.response?.status;
+      const msg =
+        e?.response?.data?.message ||
+        e?.message ||
+        "Envoi impossible. Réessayez plus tard.";
+      if (status === 422 && /variant/i.test(String(msg))) {
+        toast({
+          variant: "destructive",
+          title: "Variante invalide",
+          description:
+            "Vérifie que l’offre SAS est active et transmise sous la forme SAS:<clé>.",
+        });
+        return;
+      }
+      if (status === 422 && /type/i.test(String(msg))) {
+        toast({
+          variant: "destructive",
+          title: "Type de demande invalide",
+          description:
+            "Utilise le slug « creer-entreprise » et vérifie la configuration côté admin.",
+        });
+        return;
+      }
+      if (e?.code === "ADMIN_BLOCKED") {
+        toast({
+          variant: "destructive",
+          title: "Action non autorisée",
+          description:
+            "Un compte administrateur ne peut pas déposer une demande.",
+        });
+        return;
+      }
+      toast({ variant: "destructive", title: "Erreur", description: msg });
     }
   };
 
   return (
     <div className="max-w-4xl mx-auto p-6">
-      {/* Progress bar */}
-      <div className="mb-8">
-        <div className="flex justify-between items-center mb-2">
-          <h1 className="text-2xl font-bold">Formulaire de Création de SAS</h1>
-          <span className="text-sm text-gray-500">Étape {currentStep} sur {totalSteps}</span>
+      {blocked && (
+        <div className="mb-6">
+          <Alert>
+            <AlertTitle className="flex items-center">
+              <Lock className="h-4 w-4 mr-2" /> Accès restreint
+            </AlertTitle>
+            <AlertDescription>{reason}</AlertDescription>
+          </Alert>
         </div>
-        <div className="w-full bg-gray-200 rounded-full h-2">
-          <div 
-            className="bg-red-600 h-2 rounded-full transition-all duration-300"
-            style={{ width: `${(currentStep / totalSteps) * 100}%` }}
-          />
-        </div>
-      </div>
+      )}
 
-      {/* Form content */}
-      {renderStep()}
-
-      {/* Navigation buttons */}
-      <div className="flex justify-between mt-8">
-        <Button
-          onClick={prevStep}
-          disabled={currentStep === 1}
-          variant="outline"
-        >
-          <ArrowLeft className="mr-2 h-4 w-4" />
-          Précédent
-        </Button>
-        
-        {currentStep < totalSteps ? (
-          <Button onClick={nextStep}>
-            Suivant
-            <ArrowRight className="ml-2 h-4 w-4" />
-          </Button>
-        ) : (
-          <Button 
-            onClick={handleSubmit}
-            className="bg-green-600 hover:bg-green-700"
-            disabled={!generatedCode}
-          >
-            <CheckCircle className="mr-2 h-4 w-4" />
-            Soumettre la demande
-          </Button>
-        )}
-      </div>
-
-      {/* Registration Modal */}
-      <Dialog open={showRegistrationModal} onOpenChange={setShowRegistrationModal}>
-        <DialogContent className="max-w-md">
-          <DialogHeader>
-            <DialogTitle>Créer un compte</DialogTitle>
-            <DialogDescription>
-              Pour soumettre votre demande, vous devez créer un compte
-            </DialogDescription>
-          </DialogHeader>
-          <div className="space-y-4">
-            <div className="grid grid-cols-2 gap-4">
-              <div>
-                <Label htmlFor="firstName">Prénom</Label>
-                <Input
-                  id="firstName"
-                  value={registrationData.firstName}
-                  onChange={(e) => setRegistrationData({ ...registrationData, firstName: e.target.value })}
-                  placeholder="Votre prénom"
-                />
-              </div>
-              <div>
-                <Label htmlFor="lastName">Nom</Label>
-                <Input
-                  id="lastName"
-                  value={registrationData.lastName}
-                  onChange={(e) => setRegistrationData({ ...registrationData, lastName: e.target.value })}
-                  placeholder="Votre nom"
-                />
-              </div>
-            </div>
+      {selectedOffer && (
+        <Card className="mb-6">
+          <CardHeader>
+            <CardTitle className="flex items-center text-red-900">
+              <BadgePercent className="h-5 w-5 mr-2" /> Offre sélectionnée
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
             <div>
-              <Label htmlFor="regEmail">Email</Label>
-              <Input
-                id="regEmail"
-                type="email"
-                value={registrationData.email}
-                onChange={(e) => setRegistrationData({ ...registrationData, email: e.target.value })}
-                placeholder="votre@email.com"
-              />
+              <div className="text-sm text-gray-500">Formule</div>
+              <div className="text-base font-medium">{selectedOffer.title}</div>
             </div>
-            <div>
-              <Label htmlFor="regPhone">Téléphone</Label>
-              <Input
-                id="regPhone"
-                value={registrationData.phone}
-                onChange={(e) => setRegistrationData({ ...registrationData, phone: e.target.value })}
-                placeholder="+225 XX XX XX XX"
-              />
-            </div>
-            <div>
-              <Label htmlFor="regPassword">Mot de passe</Label>
-              <div className="relative">
-                <Input
-                  id="regPassword"
-                  type={showPassword ? "text" : "password"}
-                  value={registrationData.password}
-                  onChange={(e) => setRegistrationData({ ...registrationData, password: e.target.value })}
-                  placeholder="Choisissez un mot de passe"
-                />
-                <button
-                  type="button"
-                  className="absolute right-3 top-1/2 transform -translate-y-1/2 text-gray-500"
-                  onClick={() => setShowPassword(!showPassword)}
-                >
-                  {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-                </button>
-              </div>
-            </div>
-            <div>
-              <Label htmlFor="regConfirmPassword">Confirmer le mot de passe</Label>
-              <div className="relative">
-                <Input
-                  id="regConfirmPassword"
-                  type={showConfirmPassword ? "text" : "password"}
-                  value={registrationData.confirmPassword}
-                  onChange={(e) => setRegistrationData({ ...registrationData, confirmPassword: e.target.value })}
-                  placeholder="Confirmez votre mot de passe"
-                />
-                <button
-                  type="button"
-                  className="absolute right-3 top-1/2 transform -translate-y-1/2 text-gray-500"
-                  onClick={() => setShowConfirmPassword(!showConfirmPassword)}
-                >
-                  {showConfirmPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-                </button>
-              </div>
-            </div>
-            <Button onClick={handleRegistration} className="w-full bg-red-900 hover:bg-red-800">
-              Créer mon compte et soumettre
+            {priceBlock}
+            <Button asChild variant="outline">
+              <Link to="/creer-entreprise/sas">Changer d’offre</Link>
             </Button>
-          </div>
-        </DialogContent>
-      </Dialog>
+          </CardContent>
+        </Card>
+      )}
+
+      <div className="mb-8">
+        <div className="flex items-center justify-between mb-4">
+          <h1 className="text-3xl font-bold text-gray-900">
+            Création d'une SAS
+          </h1>
+          <span className="text-sm text-gray-500">
+            Étape {currentStep} sur {totalSteps}
+          </span>
+        </div>
+        <Progress value={progress} className="w-full" />
+      </div>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            {currentKey === "base" && <FileText className="h-5 w-5" />}
+            {currentKey === "company" && <Building className="h-5 w-5" />}
+            {currentKey === "shareholders" && <Users className="h-5 w-5" />}
+            {currentKey === "president" && <User className="h-5 w-5" />}
+            {currentKey === "governance" && <Settings className="h-5 w-5" />}
+            {currentKey === "documents" && <Upload className="h-5 w-5" />}
+            {currentKey === "email" && <User className="h-5 w-5" />}
+            {currentTitle}
+          </CardTitle>
+          <CardDescription>
+            Complétez les informations demandées pour cette étape
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <Form {...form}>
+            <form
+              noValidate
+              onSubmit={(e) => {
+                // on neutralise toute soumission native
+                e.preventDefault();
+                e.stopPropagation();
+              }}
+              onKeyDownCapture={(e) => {
+                const tag = (e.target as HTMLElement).tagName;
+                if (e.key === "Enter" && tag !== "TEXTAREA") {
+                  if (currentStep < totalSteps) {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    nextStep();
+                  }
+                }
+              }}
+              onKeyDown={(e) => {
+                const tag = (e.target as HTMLElement).tagName;
+                if (e.key === "Enter" && tag !== "TEXTAREA") {
+                  if (currentStep < totalSteps) {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    nextStep();
+                  }
+                }
+              }}
+              action="javascript:void(0)"
+              onInvalid={(e) => {
+                if (currentStep < totalSteps) {
+                  e.preventDefault();
+                  e.stopPropagation();
+                }
+              }}
+              className="space-y-6"
+            >
+              <fieldset disabled={blocked}>
+                {currentKey === "base" && (
+                  <div className="space-y-4">
+                    <FormField
+                      control={form.control}
+                      name="requestDate"
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>Date de la demande</FormLabel>
+                          <FormControl>
+                            <Input type="date" {...field} />
+                          </FormControl>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+                    <FormField
+                      control={form.control}
+                      name="creationLocation"
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>Lieu de création</FormLabel>
+                          {selectedOffer?.pricing_mode === "quote" ? (
+                            <FormControl>
+                              <Input
+                                placeholder="Ville où sera créée la société"
+                                {...field}
+                              />
+                            </FormControl>
+                          ) : (
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                              <Button
+                                type="button"
+                                variant={
+                                  field.value?.toLowerCase() === "abidjan"
+                                    ? "default"
+                                    : "outline"
+                                }
+                                onClick={() => field.onChange("abidjan")}
+                              >
+                                Abidjan
+                              </Button>
+                              <Button
+                                type="button"
+                                variant={
+                                  field.value?.toLowerCase() === "intérieur" ||
+                                  field.value?.toLowerCase() === "interieur" ||
+                                  field.value === "interior"
+                                    ? "default"
+                                    : "outline"
+                                }
+                                onClick={() => field.onChange("interior")}
+                              >
+                                Intérieur
+                              </Button>
+                            </div>
+                          )}
+                          {!isQuote && !selectedAmount && (
+                            <p className="text-xs text-gray-500 mt-1">
+                              Choisissez une zone pour déterminer le tarif
+                              appliqué.
+                            </p>
+                          )}
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+                  </div>
+                )}
+
+                {currentKey === "company" && (
+                  <div className="space-y-4">
+                    <FormField
+                      control={form.control}
+                      name="companyName"
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>Dénomination Sociale</FormLabel>
+                          <FormControl>
+                            <Input
+                              placeholder="Nom de votre société"
+                              {...field}
+                            />
+                          </FormControl>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+                    <FormField
+                      control={form.control}
+                      name="headquarters"
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>Siège Social</FormLabel>
+                          <FormControl>
+                            <Textarea
+                              placeholder="Adresse complète du siège social"
+                              {...field}
+                            />
+                          </FormControl>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      <FormField
+                        control={form.control}
+                        name="phone"
+                        render={({ field }) => (
+                          <FormItem>
+                            <FormLabel>Téléphone</FormLabel>
+                            <FormControl>
+                              <Input
+                                placeholder="+225 XX XX XX XX"
+                                {...field}
+                              />
+                            </FormControl>
+                            <FormMessage />
+                          </FormItem>
+                        )}
+                      />
+                      <FormField
+                        control={form.control}
+                        name="email"
+                        render={({ field }) => (
+                          <FormItem>
+                            <FormLabel>Email</FormLabel>
+                            <FormControl>
+                              <Input
+                                type="email"
+                                placeholder="contact@societe.com"
+                                {...field}
+                              />
+                            </FormControl>
+                            <FormMessage />
+                          </FormItem>
+                        )}
+                      />
+                    </div>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      <FormField
+                        control={form.control}
+                        name="duration"
+                        render={({ field }) => (
+                          <FormItem>
+                            <FormLabel>
+                              Durée de la société (en années)
+                            </FormLabel>
+                            <FormControl>
+                              <Input
+                                type="number"
+                                placeholder="99"
+                                {...field}
+                              />
+                            </FormControl>
+                            <FormMessage />
+                          </FormItem>
+                        )}
+                      />
+                      <FormField
+                        control={form.control}
+                        name="capital"
+                        render={({ field }) => (
+                          <FormItem>
+                            <FormLabel>Capital Social (FCFA)</FormLabel>
+                            <FormControl>
+                              <Input placeholder="1 000 000" {...field} />
+                            </FormControl>
+                            <FormMessage />
+                          </FormItem>
+                        )}
+                      />
+                    </div>
+                    <FormField
+                      control={form.control}
+                      name="activity"
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>
+                            Activité principale / Objet social
+                          </FormLabel>
+                          <FormControl>
+                            <Textarea
+                              placeholder="Décrivez l'activité principale de votre société"
+                              {...field}
+                            />
+                          </FormControl>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+                  </div>
+                )}
+
+                {currentKey === "shareholders" && (
+                  <div className="space-y-6">
+                    <div className="flex items-center justify-between">
+                      <h3 className="text-lg font-semibold">
+                        Actionnaires fondateurs
+                      </h3>
+                      {fields.length < 5 && (
+                        <Button
+                          type="button"
+                          variant="outline"
+                          onClick={() =>
+                            append({
+                              name: "",
+                              nationality: "",
+                              address: "",
+                              shares: "",
+                            })
+                          }
+                        >
+                          Ajouter un actionnaire
+                        </Button>
+                      )}
+                    </div>
+
+                    {fields.map((field, index) => (
+                      <div
+                        key={field.id}
+                        className="border rounded-lg p-4 space-y-4"
+                      >
+                        <div className="flex items-center justify-between">
+                          <div className="font-medium">
+                            Actionnaire {index + 1}
+                          </div>
+                          {fields.length > 1 && (
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => remove(index)}
+                              className="text-red-600"
+                            >
+                              <X className="h-4 w-4" />
+                            </Button>
+                          )}
+                        </div>
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                          <FormField
+                            control={form.control}
+                            name={`shareholders.${index}.name` as const}
+                            render={({ field }) => (
+                              <FormItem>
+                                <FormLabel>Nom & Prénom</FormLabel>
+                                <FormControl>
+                                  <Input placeholder="Jean Dupont" {...field} />
+                                </FormControl>
+                                <FormMessage />
+                              </FormItem>
+                            )}
+                          />
+                          <FormField
+                            control={form.control}
+                            name={`shareholders.${index}.nationality` as const}
+                            render={({ field }) => (
+                              <FormItem>
+                                <FormLabel>Nationalité</FormLabel>
+                                <FormControl>
+                                  <Input placeholder="Française" {...field} />
+                                </FormControl>
+                                <FormMessage />
+                              </FormItem>
+                            )}
+                          />
+                        </div>
+                        <FormField
+                          control={form.control}
+                          name={`shareholders.${index}.address` as const}
+                          render={({ field }) => (
+                            <FormItem>
+                              <FormLabel>Adresse</FormLabel>
+                              <FormControl>
+                                <Textarea
+                                  placeholder="Adresse complète"
+                                  {...field}
+                                />
+                              </FormControl>
+                              <FormMessage />
+                            </FormItem>
+                          )}
+                        />
+                        <FormField
+                          control={form.control}
+                          name={`shareholders.${index}.shares` as const}
+                          render={({ field }) => (
+                            <FormItem>
+                              <FormLabel>Nombre d'actions</FormLabel>
+                              <FormControl>
+                                <Input placeholder="100" {...field} />
+                              </FormControl>
+                              <FormMessage />
+                            </FormItem>
+                          )}
+                        />
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {currentKey === "president" && (
+                  <div className="space-y-4">
+                    <FormField
+                      control={form.control}
+                      name="presidentName"
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>Nom et Prénom du Président</FormLabel>
+                          <FormControl>
+                            <Input placeholder="Nom complet" {...field} />
+                          </FormControl>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+                    <FormField
+                      control={form.control}
+                      name="presidentAddress"
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>Adresse du Président</FormLabel>
+                          <FormControl>
+                            <Textarea
+                              placeholder="Adresse complète"
+                              {...field}
+                            />
+                          </FormControl>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      <FormField
+                        control={form.control}
+                        name="presidentPhone"
+                        render={({ field }) => (
+                          <FormItem>
+                            <FormLabel>Téléphone</FormLabel>
+                            <FormControl>
+                              <Input
+                                placeholder="+225 XX XX XX XX"
+                                {...field}
+                              />
+                            </FormControl>
+                            <FormMessage />
+                          </FormItem>
+                        )}
+                      />
+                      <FormField
+                        control={form.control}
+                        name="presidentEmail"
+                        render={({ field }) => (
+                          <FormItem>
+                            <FormLabel>Email</FormLabel>
+                            <FormControl>
+                              <Input
+                                type="email"
+                                placeholder="president@societe.com"
+                                {...field}
+                              />
+                            </FormControl>
+                            <FormMessage />
+                          </FormItem>
+                        )}
+                      />
+                    </div>
+                  </div>
+                )}
+
+                {currentKey === "governance" && (
+                  <div className="space-y-6">
+                    <div>
+                      <h4 className="text-base font-semibold mb-2">
+                        Mode de décision
+                      </h4>
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                        <FormField
+                          control={form.control}
+                          name="decisionMode"
+                          render={({ field }) => (
+                            <Button
+                              type="button"
+                              variant={
+                                field.value === "assemblee"
+                                  ? "default"
+                                  : "outline"
+                              }
+                              onClick={() => field.onChange("assemblee")}
+                            >
+                              Assemblée générale
+                            </Button>
+                          )}
+                        />
+                        <FormField
+                          control={form.control}
+                          name="decisionMode"
+                          render={({ field }) => (
+                            <Button
+                              type="button"
+                              variant={
+                                field.value === "consultation"
+                                  ? "default"
+                                  : "outline"
+                              }
+                              onClick={() => field.onChange("consultation")}
+                            >
+                              Consultation écrite
+                            </Button>
+                          )}
+                        />
+                      </div>
+                    </div>
+                    <div>
+                      <h4 className="text-base font-semibold mb-2">
+                        Organe de gestion
+                      </h4>
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                        <FormField
+                          control={form.control}
+                          name="governance"
+                          render={({ field }) => (
+                            <Button
+                              type="button"
+                              variant={
+                                field.value === "president"
+                                  ? "default"
+                                  : "outline"
+                              }
+                              onClick={() => field.onChange("president")}
+                            >
+                              Président seul
+                            </Button>
+                          )}
+                        />
+                        <FormField
+                          control={form.control}
+                          name="governance"
+                          render={({ field }) => (
+                            <Button
+                              type="button"
+                              variant={
+                                field.value === "conseil"
+                                  ? "default"
+                                  : "outline"
+                              }
+                              onClick={() => field.onChange("conseil")}
+                            >
+                              Conseil d'administration
+                            </Button>
+                          )}
+                        />
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {currentKey === "documents" && (
+                  <div className="space-y-8">
+                    <div>
+                      <h3 className="text-lg font-semibold mb-4">
+                        Documents à Joindre
+                      </h3>
+                      <div className="space-y-4">
+                        {documentTypes.map((docType) => (
+                          <div
+                            key={docType.key}
+                            className="border rounded-lg p-4"
+                          >
+                            <div className="flex items-center justify-between mb-3">
+                              <div className="flex items-center gap-2">
+                                <File className="h-4 w-4 text-blue-600" />
+                                <span className="font-medium">
+                                  {docType.label}
+                                </span>
+                                {docType.required && (
+                                  <span className="text-red-500 text-sm">
+                                    *
+                                  </span>
+                                )}
+                              </div>
+                              {uploadedFiles[docType.key]?.length > 0 && (
+                                <div className="flex items-center gap-1 text-green-600">
+                                  <Check className="h-4 w-4" />
+                                  <span className="text-sm">
+                                    {uploadedFiles[docType.key].length}{" "}
+                                    fichier(s)
+                                  </span>
+                                </div>
+                              )}
+                            </div>
+                            <div className="space-y-2">
+                              <Input
+                                type="file"
+                                multiple
+                                accept=".pdf,.doc,.docx,.jpg,.jpeg,.png"
+                                onChange={(e) =>
+                                  handleFileUpload(docType.key, e.target.files)
+                                }
+                                className="cursor-pointer"
+                              />
+                              {uploadedFiles[docType.key]?.length ? (
+                                <div className="space-y-1 mt-2">
+                                  {uploadedFiles[docType.key].map(
+                                    (file, index) => (
+                                      <div
+                                        key={index}
+                                        className="flex items-center justify-between bg-gray-50 p-2 rounded text-sm"
+                                      >
+                                        <span className="truncate">
+                                          {file.name}
+                                        </span>
+                                        <Button
+                                          type="button"
+                                          variant="ghost"
+                                          size="sm"
+                                          onClick={() =>
+                                            removeFile(docType.key, index)
+                                          }
+                                          className="text-red-600 hover:text-red-800 h-6 w-6 p-0"
+                                        >
+                                          <X className="h-3 w-3" />
+                                        </Button>
+                                      </div>
+                                    )
+                                  )}
+                                </div>
+                              ) : null}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                      <div className="mt-4 p-3 bg-blue-50 rounded-lg">
+                        <p className="text-sm text-blue-800">
+                          <strong>Formats acceptés :</strong> PDF, DOC, DOCX,
+                          JPG, JPEG, PNG
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {currentKey === "email" && !auth && (
+                  <div className="space-y-4">
+                    <div className="text-center mb-6">
+                      <h3 className="text-lg font-semibold">
+                        Votre e-mail pour le suivi
+                      </h3>
+                      <p className="text-gray-600">
+                        Nous créerons un compte automatiquement si vous n’en
+                        avez pas. Vous pourrez définir un mot de passe ensuite.
+                      </p>
+                    </div>
+                    <FormField
+                      control={form.control}
+                      name="userEmail"
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>Email</FormLabel>
+                          <FormControl>
+                            <Input
+                              type="email"
+                              placeholder="votre@email.com"
+                              {...field}
+                            />
+                          </FormControl>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+                  </div>
+                )}
+              </fieldset>
+
+              <div className="flex justify-between pt-6">
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={prevStep}
+                  disabled={currentStep === 1 || blocked}
+                >
+                  <ArrowLeft className="mr-2 h-4 w-4" />
+                  Précédent
+                </Button>
+
+                {currentStep < totalSteps ? (
+                  <Button type="button" onClick={nextStep} disabled={blocked}>
+                    Suivant
+                    <ArrowRight className="ml-2 h-4 w-4" />
+                  </Button>
+                ) : (
+                  <Button
+                    type="button" // <-- pas "submit"
+                    onClick={form.handleSubmit(onSubmit)}
+                    className="bg-red-900 hover:bg-red-800"
+                    disabled={blocked}
+                  >
+                    Créer ma SAS
+                  </Button>
+                )}
+              </div>
+            </form>
+          </Form>
+        </CardContent>
+      </Card>
+
+      <DemandeSuccessModal
+        open={modalOpen}
+        refCode={lastRef}
+        userEmail={form.getValues("userEmail") || form.getValues("email")}
+        isAuthenticated={!!auth}
+        onOpenChange={setModalOpen}
+        onCloseToHome={() => {
+          setModalOpen(false);
+          form.reset();
+          navigate("/");
+        }}
+        onCloseToOrders={() => {
+          setModalOpen(false);
+          form.reset();
+          navigate("/mes-demandes");
+        }}
+      />
     </div>
   );
 };

@@ -10,7 +10,7 @@ export const FORM_ROUTES: Record<string, string> = {
   SAS: "/creer-entreprise/sas/formulaire",
   SASU: "/creer-entreprise/sasu/formulaire",
   SARL: "/creer-entreprise/sarl/formulaire",
-  SARLU: "/creer-entreprise/sarlu/nouveau-formulaire",
+  SARLU: "/creer-entreprise/sarlu/formulaire",
   SA: "/creer-entreprise/sa/formulaire",
   SAU: "/creer-entreprise/sau/formulaire",
   SCI: "/creer-entreprise/sci/formulaire",

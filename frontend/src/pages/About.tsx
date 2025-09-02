@@ -21,6 +21,7 @@ import {
 } from "lucide-react";
 import { Link } from "react-router-dom";
 import { useEffect, useState } from "react";
+import Footer from "@/components/Footer";
 
 const About = () => {
   const [counters, setCounters] = useState({
@@ -492,7 +493,7 @@ const About = () => {
             <Button
               size="lg"
               variant="outline"
-              className="text-lg px-8 py-3 border-white text-white hover:bg-white hover:text-red-900"
+              className="text-lg px-8 py-3 border-white text-red-900 hover:bg-white hover:text-red-900"
               asChild
             >
               <Link to="/services">
@@ -519,7 +520,8 @@ const About = () => {
       </div>
 
       {/* Footer */}
-      <footer className="bg-gray-100 py-12">
+      <Footer />
+      {/* <footer className="bg-gray-100 py-12">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="grid grid-cols-1 md:grid-cols-4 gap-8">
             <div>
@@ -611,7 +613,7 @@ const About = () => {
             </p>
           </div>
         </div>
-      </footer>
+      </footer> */}
     </div>
   );
 };

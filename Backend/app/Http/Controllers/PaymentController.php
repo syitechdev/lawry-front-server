@@ -98,7 +98,7 @@ class PaymentController extends Controller
             'customerPhoneNumber' => $customerPhoneNumber,
             'notificationURL'     => route('payments.webhook'),
             //'returnURL'           => route('payments.return'),
-            'returnURL' => config('app.frontend_url') . '/payment/return',
+            'returnURL' => config('app.frontend_url') . 'payment/return',
             'countryCurrencyCode' => $pp->currencyCode(),
             'channel'             => $payment->channel,
             'description'         => $payable->payableLabel(),

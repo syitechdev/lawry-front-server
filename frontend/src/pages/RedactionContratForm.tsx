@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState, useRef } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import Header from "@/components/Header";
 import {
   Link,
@@ -6,7 +6,6 @@ import {
   useNavigate,
   useSearchParams,
 } from "react-router-dom";
-
 import { http } from "@/lib/http";
 import { toast } from "sonner";
 
@@ -86,7 +85,7 @@ type RtResponse = {
   id: number;
   name: string;
   slug: string;
-  currency?: string | null;
+  currency?: string;
   config?: {
     variant_cards?: VariantCard[];
     order?: string[];
@@ -101,22 +100,34 @@ const formSchema = z.object({
     .min(2, "Le numéro d'identification est requis"),
   partie1Representant: z.string().optional(),
   partie1Telephone: z.string().min(7, "Téléphone requis"),
-  partie1Email: z.string().email("Email invalide"),
+  email: z.string().email("Email invalide"),
+
   objetContrat: z.string().min(10, "L'objet du contrat doit être décrit"),
-  obligationsPartie1: z.string().min(10, "Obligations de la partie 1 requises"),
-  obligationsPartie2: z.string().min(10, "Obligations de la partie 2 requises"),
+
+  obligationsPartie1: z
+    .string()
+    .min(10, "Les obligations de la partie 1 sont requises"),
+  obligationsPartie2: z
+    .string()
+    .min(10, "Les obligations de la partie 2 sont requises"),
+
   montant: z.string().min(1, "Le montant est requis"),
-  modalitesPaiement: z.string().min(5, "Modalités de paiement requises"),
+  modalitesPaiement: z
+    .string()
+    .min(5, "Les modalités de paiement sont requises"),
   penalitesRetard: z.string().optional(),
+
   dateDebut: z.string().min(1, "La date de début est requise"),
   dureeContrat: z.string().min(1, "La durée du contrat est requise"),
   conditionsResiliation: z
     .string()
     .min(5, "Les conditions de résiliation sont requises"),
+
   confidentialite: z.enum(["oui", "non"]),
   clausesConfidentialite: z.string().optional(),
   proprieteIntellectuelle: z.enum(["oui", "non"]),
   modalitesPI: z.string().optional(),
+
   garanties: z.string().min(5, "Les garanties sont requises"),
   responsabilite: z.string().optional(),
   droitApplicable: z.string().min(2, "Le droit applicable est requis"),
@@ -129,21 +140,15 @@ type FormData = z.infer<typeof formSchema>;
 type SelectedOffer = {
   key: string;
   title: string;
-  subtitle: string | null;
-  pill: string | null;
   pricing_mode: PricingMode;
-  price: number | null;
-  currency: string | null;
-  features: string[];
-  cta: string | null;
+  price: number | null; // ← card.price_amount
+  currency: string; // ← card.currency (ou fallback RT si manquant)
 };
 
 const RedactionContratForm = () => {
   const navigate = useNavigate();
   const location = useLocation();
   const [search] = useSearchParams();
-
-  const redirectedRef = useRef(false);
 
   const isAuthenticated =
     !!localStorage.getItem("auth_token") ||
@@ -153,12 +158,10 @@ const RedactionContratForm = () => {
   const [cards, setCards] = useState<VariantCard[]>([]);
   const [loadingCards, setLoadingCards] = useState(true);
 
-  const stateOfferKey = (location.state as any)?.offer?.key as
-    | string
-    | undefined;
-  const queryVariant = (search.get("variant") ||
-    search.get("offer") ||
-    undefined) as string | undefined;
+  // on accepte state.offer uniquement pour la KEY, jamais pour le prix/devise
+  const stateOfferKey: string | undefined = (location.state as any)?.offer?.key;
+  const queryVariant =
+    search.get("variant") || search.get("offer") || undefined;
 
   const [selectedOffer, setSelectedOffer] = useState<SelectedOffer | null>(
     null
@@ -191,22 +194,25 @@ const RedactionContratForm = () => {
       if (me?.name) form.setValue("partie1Nom", me.name);
       if (me?.address) form.setValue("partie1Adresse", me.address);
       if (me?.phone) form.setValue("partie1Telephone", me.phone);
-      if (me?.email) form.setValue("partie1Email", me.email);
+      if (me?.email) form.setValue("email", me.email);
     } catch {}
   }, []);
 
-  const cardToOffer = (c: VariantCard): SelectedOffer => ({
-    key: c.key,
-    title: c.title,
-    subtitle: c.subtitle ?? null,
-    pill: c.pill ?? null,
-    pricing_mode: c.pricing_mode,
-    price: typeof c.price_amount === "number" ? Number(c.price_amount) : null,
-    currency: c.currency ?? null,
-    features: Array.isArray(c.features) ? c.features : [],
-    cta: c.cta ?? null,
+  // helper: mappe STRICTEMENT depuis la card
+  const cardToOffer = (v: VariantCard, rtCurrency?: string): SelectedOffer => ({
+    key: v.key,
+    title: v.title,
+    pricing_mode: v.pricing_mode as PricingMode,
+    price:
+      typeof v.price_amount === "number"
+        ? Number(v.price_amount)
+        : v.price_amount == null
+        ? null
+        : Number(v.price_amount),
+    currency: v.currency || rtCurrency || "XOF",
   });
 
+  // charge les cards et sélectionne l’offre UNIQUEMENT via la card
   useEffect(() => {
     (async () => {
       setLoadingCards(true);
@@ -217,21 +223,25 @@ const RedactionContratForm = () => {
         const cfg = data?.config || {};
         const all = (cfg.variant_cards || []).filter((c) => c.active !== false);
         const order =
-          cfg.order && cfg.order.length ? cfg.order : all.map((c) => c.key);
+          Array.isArray(cfg.order) && cfg.order.length
+            ? cfg.order
+            : all.map((c) => c.key);
         const ordered = order
           .map((k) => all.find((c) => c.key === k))
           .filter(Boolean) as VariantCard[];
+
         setRt(data);
         setCards(ordered);
 
-        let chosen: VariantCard | undefined;
-        if (stateOfferKey)
-          chosen = ordered.find((c) => c.key === stateOfferKey);
-        if (!chosen && queryVariant)
-          chosen = ordered.find((c) => c.key === queryVariant);
-        if (!chosen) chosen = ordered[0];
+        // priorité : stateOfferKey → queryVariant → 1ère card
+        const desiredKey = stateOfferKey || queryVariant || ordered[0]?.key;
+        const found = ordered.find((c) => c.key === desiredKey) || ordered[0];
 
-        if (chosen) setSelectedOffer(cardToOffer(chosen));
+        if (found) {
+          setSelectedOffer(cardToOffer(found, data?.currency));
+        } else {
+          setSelectedOffer(null);
+        }
       } catch (e: any) {
         toast.error(
           e?.response?.data?.message ||
@@ -262,7 +272,7 @@ const RedactionContratForm = () => {
       "partie1Identification",
       "partie1Representant",
       "partie1Telephone",
-      "partie1Email",
+      "email",
     ],
     2: ["objetContrat"],
     3: ["obligationsPartie1", "obligationsPartie2"],
@@ -289,10 +299,11 @@ const RedactionContratForm = () => {
     }
     setCurrentStep((s) => Math.min(s + 1, steps.length));
   };
+
   const prevStep = () => setCurrentStep((s) => Math.max(1, s - 1));
 
-  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const files = Array.from(e.target.files || []);
+  const handleFileUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(event.target.files || []);
     if (!files.length) return;
     setUploadedFiles((prev) => [...prev, ...files]);
     toast.success(`${files.length} document(s) ajouté(s).`);
@@ -304,13 +315,12 @@ const RedactionContratForm = () => {
 
   const isSubmitting = form.formState.isSubmitting;
 
+  // affichage prix depuis la card
   const priceDisplay = useMemo(() => {
     if (!selectedOffer) return "—";
     const cur =
-      (selectedOffer.currency || rt?.currency || "XOF") === "XOF"
-        ? "FCFA"
-        : selectedOffer.currency || rt?.currency || "";
-    const amt = selectedOffer.price ?? null;
+      selectedOffer.currency === "XOF" ? "FCFA" : selectedOffer.currency;
+    const amt = selectedOffer.price;
 
     switch (selectedOffer.pricing_mode) {
       case "fixed":
@@ -318,109 +328,112 @@ const RedactionContratForm = () => {
           ? `${amt.toLocaleString("fr-FR")} ${cur}`
           : `— ${cur}`;
       case "from":
-        return amt && amt > 0
+        return amt != null && amt > 0
           ? `À partir de ${amt.toLocaleString("fr-FR")} ${cur}`
           : "À partir de —";
       default:
         return "Sur devis";
     }
-  }, [selectedOffer, rt?.currency]);
+  }, [selectedOffer]);
 
-  const partie1EmailWatch = form.watch("partie1Email");
+  const emailWatch = form.watch("email");
   const userEmailForReset = useMemo(() => {
-    if (partie1EmailWatch) return partie1EmailWatch;
+    if (emailWatch) return emailWatch;
     try {
       const u = JSON.parse(localStorage.getItem("current_user") || "{}");
       return u?.email || "";
     } catch {
       return "";
     }
-  }, [partie1EmailWatch]);
+  }, [emailWatch]);
 
   const onSubmit = async (data: FormData) => {
     if (!selectedOffer?.key) {
       toast.error("Aucune offre sélectionnée", {
-        description: "Choisissez un type de contrat.",
+        description:
+          "Veuillez revenir à la liste et choisir un type de contrat.",
       });
       return;
     }
 
+    // décision paiement immédiat depuis la card (fixed + price_amount > 0)
     const fixedPrice =
       selectedOffer.pricing_mode === "fixed" && selectedOffer.price != null
         ? Number(selectedOffer.price)
         : 0;
     const shouldPayNow = fixedPrice > 0;
 
-    console.debug("[PAY] selectedOffer:", selectedOffer);
-    console.debug(
-      "[PAY] shouldPayNow:",
-      shouldPayNow,
-      "fixedPrice:",
-      fixedPrice
-    );
-
     try {
       const fd = new window.FormData();
+
+      // type_slug et variant_key
       fd.append("type", "rediger-contrat");
       fd.append("variant_key", selectedOffer.key);
+      // currency STRICTEMENT depuis la card (fallback RT côté chargement seulement)
+      fd.append("currency", selectedOffer.currency || "XOF");
 
-      const effectiveCurrency = selectedOffer.currency || rt?.currency || "XOF";
-      fd.append("currency", effectiveCurrency);
-
-      // --- champs ...
+      // Identification
       fd.append("data[partie1Nom]", data.partie1Nom);
       fd.append("data[partie1Adresse]", data.partie1Adresse);
       fd.append("data[partie1Identification]", data.partie1Identification);
       if (data.partie1Representant)
         fd.append("data[partie1Representant]", data.partie1Representant);
       fd.append("data[partie1Telephone]", data.partie1Telephone);
-      fd.append("data[partie1Email]", data.partie1Email);
+      fd.append("data[email]", data.email);
+
+      // Objet
       fd.append("data[objetContrat]", data.objetContrat);
+
+      // Obligations
       fd.append("data[obligationsPartie1]", data.obligationsPartie1);
       fd.append("data[obligationsPartie2]", data.obligationsPartie2);
+
+      // Financier
       fd.append("data[montant]", data.montant);
       fd.append("data[modalitesPaiement]", data.modalitesPaiement);
       if (data.penalitesRetard)
         fd.append("data[penalitesRetard]", data.penalitesRetard);
+
+      // trace du preset choisi : valeurs 100% card
+      fd.append("data[selected_preset][label]", selectedOffer.title);
+      fd.append(
+        "data[selected_preset][pricing_mode]",
+        selectedOffer.pricing_mode
+      );
+      fd.append(
+        "data[selected_preset][currency]",
+        selectedOffer.currency || "XOF"
+      );
+      fd.append(
+        "data[selected_preset][price]",
+        selectedOffer.price == null ? "" : String(selectedOffer.price)
+      );
+
+      // Durée
       fd.append("data[dateDebut]", data.dateDebut);
       fd.append("data[dureeContrat]", data.dureeContrat);
       fd.append("data[conditionsResiliation]", data.conditionsResiliation);
+
+      // Confidentialité & PI
       fd.append("data[confidentialite]", data.confidentialite);
       fd.append("data[proprieteIntellectuelle]", data.proprieteIntellectuelle);
       if (data.confidentialite === "oui" && data.clausesConfidentialite)
         fd.append("data[clausesConfidentialite]", data.clausesConfidentialite);
       if (data.proprieteIntellectuelle === "oui" && data.modalitesPI)
         fd.append("data[modalitesPI]", data.modalitesPI);
+
+      // Garanties
       fd.append("data[garanties]", data.garanties);
       if (data.responsabilite)
         fd.append("data[responsabilite]", data.responsabilite);
+
+      // Droit + litiges
       fd.append("data[droitApplicable]", data.droitApplicable);
       (data.reglementLitiges || []).forEach((t, i) =>
         fd.append(`data[reglementLitiges][${i}]`, t)
       );
 
-      // snapshot offre
-      fd.append("data[selected_preset][key]", selectedOffer.key);
-      fd.append("data[selected_preset][label]", selectedOffer.title);
-      if (selectedOffer.subtitle)
-        fd.append("data[selected_preset][subtitle]", selectedOffer.subtitle);
-      if (selectedOffer.pill)
-        fd.append("data[selected_preset][pill]", selectedOffer.pill);
-      fd.append(
-        "data[selected_preset][pricing_mode]",
-        selectedOffer.pricing_mode
-      );
-      fd.append("data[selected_preset][currency]", effectiveCurrency);
-      fd.append(
-        "data[selected_preset][price]",
-        selectedOffer.price == null ? "" : String(selectedOffer.price)
-      );
-      (selectedOffer.features || []).forEach((f, i) =>
-        fd.append(`data[selected_preset][features][${i}]`, f)
-      );
-      if (selectedOffer.cta)
-        fd.append("data[selected_preset][cta]", selectedOffer.cta);
-
+      // Fichiers
       uploadedFiles.forEach((file) => fd.append("files[attachments][]", file));
 
       const { data: res } = await http.post("/demandes", fd, {
@@ -435,90 +448,46 @@ const RedactionContratForm = () => {
         res?.demande?.data?.ref ??
         null;
 
-      console.debug("[PAY] create /demandes res:", res);
-      console.debug("[PAY] createdId:", createdId, "createdRef:", createdRef);
-
-      // Protection anti-modal si on part en paiement
-      redirectedRef.current = false;
-
       if (shouldPayNow && createdId) {
         const [first, ...rest] = (data.partie1Nom || "").trim().split(/\s+/);
         const customer = {
-          email: data.partie1Email,
+          email: data.email,
           firstName: first || "Client",
           lastName: rest.join(" ") || "Inconnu",
           phone: data.partie1Telephone,
         };
 
-        try {
-          const pay = await initPayment({
-            type: "demande",
-            id: createdId,
-            customer,
-            // channel: "CARD",
-          });
-          console.debug("[PAY] initPayment response:", pay);
+        const pay = await initPayment({
+          type: "demande",
+          id: createdId,
+          customer,
+        });
 
-          const action = pay?.action;
-          const fields = pay?.fields || {};
-          const method = (pay?.method as "POST" | "GET") || "POST";
-          const redirectUrl =
-            pay?.redirect_url ||
-            pay?.redirectUrl ||
-            pay?.url ||
-            pay?.checkoutUrl ||
-            pay?.payment_url;
-
-          if (redirectUrl && typeof redirectUrl === "string") {
-            redirectedRef.current = true;
-            toast.info("Redirection vers le paiement…");
-            window.location.assign(redirectUrl);
-            return;
-          }
-
-          if (action && typeof action === "string") {
-            redirectedRef.current = true;
-            toast.info("Redirection vers le paiement…");
-            autoPost(action, fields, method);
-            return;
-          }
-
-          console.warn(
-            "[PAY] Aucune clé utilisable pour rediriger (action/url manquants)."
-          );
-          toast.error("Paiement indisponible", {
-            description:
-              "Impossible de lancer la page de paiement. Réessayez depuis vos commandes.",
-          });
-        } catch (err: any) {
-          console.error("[PAY] initPayment error:", err);
-          toast.error("Paiement indisponible", {
-            description:
-              err?.message ||
-              "Impossible de démarrer le paiement. Vous pourrez payer plus tard.",
-          });
-        }
+        autoPost(
+          pay.action,
+          pay.fields,
+          (pay.method as "POST" | "GET") || "POST"
+        );
+        return;
       }
 
-      if (!redirectedRef.current) {
-        setSuccessRef(createdRef);
-        setSuccessOpen(true);
-      }
+      setSuccessRef(createdRef);
+      setSuccessOpen(true);
     } catch (e: any) {
       const status = e?.response?.status;
       const msg =
         e?.response?.data?.message || e?.message || "Erreur lors de l’envoi.";
-      console.error("[PAY] submit error:", status, msg, e?.response?.data);
 
       if (status === 413 || /too large|exceeds|payload/i.test(String(msg))) {
         toast.error("Fichier trop volumineux", {
-          description: "Réduisez la taille puis réessayez.",
+          description:
+            "Un ou plusieurs fichiers dépassent la taille autorisée.",
         });
         return;
       }
       if (/does not exist|not readable/i.test(String(msg))) {
         toast.error("Fichier invalide", {
-          description: "Retirez le fichier invalide puis réessayez.",
+          description: "Un fichier est invalide ou corrompu.",
         });
         return;
       }
@@ -529,17 +498,6 @@ const RedactionContratForm = () => {
       toast.error("Envoi impossible", { description: msg });
     }
   };
-
-  const stepsDef = [
-    { id: 1, title: "Identification", icon: FileText },
-    { id: 2, title: "Objet du contrat", icon: FileText },
-    { id: 3, title: "Obligations des parties", icon: FileCheck },
-    { id: 4, title: "Conditions financières", icon: CreditCard },
-    { id: 5, title: "Durée et résiliation", icon: Calendar },
-    { id: 6, title: "Confidentialité", icon: Shield },
-    { id: 7, title: "Garanties", icon: Scale },
-    { id: 8, title: "Droit applicable", icon: Gavel },
-  ];
 
   const renderStep = () => {
     switch (currentStep) {
@@ -580,7 +538,25 @@ const RedactionContratForm = () => {
                 </FormItem>
               )}
             />
-
+            <div className="md:col-span-2">
+              <FormField
+                control={form.control}
+                name="partie1Adresse"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Adresse</FormLabel>
+                    <FormControl>
+                      <Textarea
+                        placeholder="Adresse complète"
+                        rows={3}
+                        {...field}
+                      />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+            </div>
             <FormField
               control={form.control}
               name="partie1Representant"
@@ -609,7 +585,7 @@ const RedactionContratForm = () => {
             />
             <FormField
               control={form.control}
-              name="partie1Email"
+              name="email"
               render={({ field }) => (
                 <FormItem>
                   <FormLabel>Email</FormLabel>
@@ -624,27 +600,9 @@ const RedactionContratForm = () => {
                 </FormItem>
               )}
             />
-            <div className="md:col-span-2">
-              <FormField
-                control={form.control}
-                name="partie1Adresse"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Adresse</FormLabel>
-                    <FormControl>
-                      <Textarea
-                        placeholder="Adresse complète"
-                        rows={3}
-                        {...field}
-                      />
-                    </FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-            </div>
           </div>
         );
+
       case 2:
         return (
           <div className="space-y-6">
@@ -667,6 +625,7 @@ const RedactionContratForm = () => {
             />
           </div>
         );
+
       case 3:
         return (
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -702,6 +661,7 @@ const RedactionContratForm = () => {
             </div>
           </div>
         );
+
       case 4:
         return (
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -713,19 +673,6 @@ const RedactionContratForm = () => {
                   <FormLabel>Montant ou tarif</FormLabel>
                   <FormControl>
                     <Input placeholder="Ex: 1 000 000 FCFA" {...field} />
-                  </FormControl>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-            <FormField
-              control={form.control}
-              name="penalitesRetard"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Pénalités de retard (optionnel)</FormLabel>
-                  <FormControl>
-                    <Input placeholder="Ex: 2% par jour de retard" {...field} />
                   </FormControl>
                   <FormMessage />
                 </FormItem>
@@ -746,8 +693,22 @@ const RedactionContratForm = () => {
                 )}
               />
             </div>
+            <FormField
+              control={form.control}
+              name="penalitesRetard"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Pénalités de retard (optionnel)</FormLabel>
+                  <FormControl>
+                    <Input placeholder="Ex: 2% par jour de retard" {...field} />
+                  </FormControl>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
           </div>
         );
+
       case 5:
         return (
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -771,7 +732,10 @@ const RedactionContratForm = () => {
                 <FormItem>
                   <FormLabel>Durée du contrat</FormLabel>
                   <FormControl>
-                    <Input placeholder="Ex: 12 mois, indéterminée" {...field} />
+                    <Input
+                      placeholder="Ex: 12 mois, 2 ans, durée indéterminée"
+                      {...field}
+                    />
                   </FormControl>
                   <FormMessage />
                 </FormItem>
@@ -794,6 +758,7 @@ const RedactionContratForm = () => {
             </div>
           </div>
         );
+
       case 6:
         return (
           <div className="space-y-6">
@@ -851,7 +816,7 @@ const RedactionContratForm = () => {
               render={({ field }) => (
                 <FormItem>
                   <FormLabel>
-                    Transfert de droits de propriété intellectuelle ?
+                    Des droits de propriété intellectuelle sont-ils transférés ?
                   </FormLabel>
                   <FormControl>
                     <RadioGroup
@@ -879,7 +844,9 @@ const RedactionContratForm = () => {
                 name="modalitesPI"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>Modalités de transfert</FormLabel>
+                    <FormLabel>
+                      Modalités de transfert de propriété intellectuelle
+                    </FormLabel>
                     <FormControl>
                       <Textarea
                         rows={4}
@@ -894,6 +861,7 @@ const RedactionContratForm = () => {
             )}
           </div>
         );
+
       case 7:
         return (
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -903,7 +871,7 @@ const RedactionContratForm = () => {
                 name="garanties"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>Garanties offertes</FormLabel>
+                    <FormLabel>Garanties offertes par les parties</FormLabel>
                     <FormControl>
                       <Textarea rows={4} placeholder="…" {...field} />
                     </FormControl>
@@ -919,7 +887,7 @@ const RedactionContratForm = () => {
                 render={({ field }) => (
                   <FormItem>
                     <FormLabel>
-                      Limitation de responsabilité (optionnel)
+                      Limitation / exclusion de responsabilité (optionnel)
                     </FormLabel>
                     <FormControl>
                       <Textarea rows={3} placeholder="…" {...field} />
@@ -931,6 +899,7 @@ const RedactionContratForm = () => {
             </div>
           </div>
         );
+
       case 8:
         return (
           <div className="space-y-6">
@@ -1071,6 +1040,7 @@ const RedactionContratForm = () => {
             </Card>
           </div>
         );
+
       default:
         return null;
     }
@@ -1134,14 +1104,14 @@ const RedactionContratForm = () => {
               Formulaire de rédaction de contrat
             </h1>
             <div className="text-sm text-gray-600">
-              Étape {currentStep} sur {steps.length}
+              Étape {currentStep} sur 8
             </div>
           </div>
 
           <div className="w-full bg-gray-200 rounded-full h-2">
             <div
               className="bg-red-900 h-2 rounded-full transition-all duration-300"
-              style={{ width: `${(currentStep / steps.length) * 100}%` }}
+              style={{ width: `${(currentStep / 8) * 100}%` }}
             />
           </div>
 
@@ -1207,7 +1177,7 @@ const RedactionContratForm = () => {
                 Précédent
               </Button>
 
-              {currentStep < steps.length ? (
+              {currentStep < 8 ? (
                 <Button
                   type="button"
                   onClick={nextStep}
@@ -1242,6 +1212,7 @@ const RedactionContratForm = () => {
             form.reset();
             setUploadedFiles([]);
             setSuccessOpen(false);
+
             if (closeRedirect === "orders") {
               const url = successRef
                 ? `/client/commandes?ref=${encodeURIComponent(successRef)}`
@@ -1270,6 +1241,7 @@ const RedactionContratForm = () => {
               Merci ! Votre demande a bien été enregistrée. Conservez votre
               numéro de suivi.
             </p>
+
             <div className="rounded-lg border bg-gray-50 p-3 flex items-center justify-between">
               <div>
                 <p className="text-xs text-gray-500">Numéro de demande</p>
@@ -1282,11 +1254,11 @@ const RedactionContratForm = () => {
                   if (successRef) {
                     navigator.clipboard
                       .writeText(successRef)
-                      .then(() =>
+                      .then(() => {
                         toast.success("Copié !", {
                           description: "Numéro de demande copié.",
-                        })
-                      )
+                        });
+                      })
                       .catch(() => toast.success("Copié !"));
                   }
                 }}
@@ -1294,6 +1266,7 @@ const RedactionContratForm = () => {
                 <Copy className="h-4 w-4" />
               </Button>
             </div>
+
             <div className="text-sm text-gray-600">
               Vous pouvez suivre l’avancement et échanger avec votre juriste
               depuis votre espace.
@@ -1316,7 +1289,8 @@ const RedactionContratForm = () => {
                   " "
                 )}
                 . Pour accéder à votre espace, allez sur la page de connexion
-                puis utilisez <strong>« Mot de passe oublié »</strong>.
+                puis utilisez <strong>« Mot de passe oublié »</strong> avec
+                votre adresse e-mail pour définir un mot de passe.
               </p>
               <div className="flex flex-wrap gap-2 pt-2">
                 <Button variant="outline" asChild>

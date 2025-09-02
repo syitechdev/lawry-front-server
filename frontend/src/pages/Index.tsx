@@ -64,10 +64,16 @@ import {
   Bot,
 } from "lucide-react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
+import { useSearchParams } from "react-router-dom";
+
 import { useState, useEffect, useRef } from "react";
+import Footer from "@/components/Footer";
+import DossierSearchForm from "@/components/DossierSearchForm";
 
 const Index = () => {
   const location = useLocation();
+  const [params] = useSearchParams();
+
   const navigate = useNavigate();
   const [selectedLanguage, setSelectedLanguage] = useState("FR");
   const [dossierNumber, setDossierNumber] = useState("");
@@ -77,13 +83,13 @@ const Index = () => {
     return location.pathname === path;
   };
 
-  const handleDossierTracking = () => {
-    if (dossierNumber.trim()) {
-      navigate(`/suivi-dossier?numero=${dossierNumber}`);
+  useEffect(() => {
+    const ref = params.get("ref");
+    if (ref) {
+      navigate(`/suivi-dossier/${encodeURIComponent(ref)}`, { replace: true });
     }
-  };
+  }, [params, navigate]);
 
-  // Hero carousel items with illustration images
   const heroSlides = [
     {
       title: "Créer votre entreprise",
@@ -528,7 +534,6 @@ const Index = () => {
               ligne, disponible 24h/24.
             </p>
           </div>
-
           <Carousel
             className="w-full max-w-4xl mx-auto mb-12"
             setApi={(api) => {
@@ -584,30 +589,13 @@ const Index = () => {
             <CarouselNext />
           </Carousel>
 
-          <div className="bg-white/70 backdrop-blur-sm p-6 rounded-lg max-w-2xl mx-auto mb-8 border border-gray-200 shadow-lg">
-            <h3 className="text-lg font-semibold text-gray-900 mb-4 text-center">
-              Suivi de dossier
-            </h3>
-            <div className="flex gap-4">
-              <Input
-                placeholder="Entrez votre numéro de dossier"
-                value={dossierNumber}
-                onChange={(e) => setDossierNumber(e.target.value)}
-                className="flex-1"
-              />
-              <Button
-                onClick={handleDossierTracking}
-                className="bg-red-900 hover:bg-red-800 text-white"
-              >
-                <Search className="h-4 w-4 mr-2" />
-                Suivre
-              </Button>
-            </div>
-            <p className="text-sm text-gray-600 mt-2 text-center">
-              Suivez l'état d'avancement de votre dossier en temps réel
-            </p>
-          </div>
-
+          <DossierSearchForm
+            onSubmit={(ref) =>
+              navigate(`/suivi-dossier/${encodeURIComponent(ref)}`)
+            }
+            placeholder="Saisir une référence (DEM-...)"
+            autoFocus
+          />
           <div className="flex flex-col sm:flex-row gap-4 justify-center animate-fade-in">
             <Button
               size="lg"
@@ -860,7 +848,7 @@ const Index = () => {
       </div>
 
       {/* Footer */}
-      <footer className="bg-gray-100 py-12">
+      {/* <footer className="bg-gray-100 py-12">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="grid grid-cols-1 md:grid-cols-4 gap-8">
             <div>
@@ -967,7 +955,8 @@ const Index = () => {
             </p>
           </div>
         </div>
-      </footer>
+      </footer> */}
+      <Footer />
     </div>
   );
 };

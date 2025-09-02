@@ -103,13 +103,9 @@ class DemandeResource extends JsonResource
         ];
     }
 
-    /**
-     * Construit un tableau "variant" lisible à partir de la config du RequestType
-     * ou, pour 'creer-entreprise', à partir de EnterpriseType + EnterpriseTypeOffer.
-     */
+
     private function resolveVariantFromRequestType(\App\Models\RequestType $rt, string $key): ?array
     {
-        // --- Cas spécial "creer-entreprise"
         if ($rt->slug === 'creer-entreprise') {
             // key attendu: SIGLE:offre (on tolère aussi | . / ::)
             $raw   = preg_replace('/\s+/', '', $key);
@@ -150,18 +146,16 @@ class DemandeResource extends JsonResource
             $mode     = $presetMode ?: (string) ($offer->pricing_mode ?? 'quote');
             $currency = $presetCurrency ?: (string) ($offer->currency ?? $rt->currency ?? 'XOF');
 
-            // Calcul de l'affichage
             $display = 'Sur devis';
             $amount  = null;
 
             if ($mode === 'fixed') {
-                // On privilégie le montant enregistré dans la demande (qui tient compte de la zone)
+                // On privilégie le montant enregistré dans la demande
                 if (is_numeric($presetAmount)) {
                     $amount = (float) $presetAmount;
                     $display = number_format($amount, 0, ',', ' ') . ' ' . $currency;
                 } else {
-                    // fallback: si pas de preset, on n'a pas la zone → on reste prudent
-                    // et on affiche "Sur devis" pour éviter une info fausse.
+
                     $display = 'Sur devis';
                 }
             } elseif ($mode === 'from') {
@@ -202,7 +196,6 @@ class DemandeResource extends JsonResource
             ];
         }
 
-        // --- Cas générique (config.variant_cards puis config.variants)
         $cards = Arr::get($rt->config, 'variant_cards', []);
         if (is_array($cards) && !empty($cards)) {
             $found = collect($cards)->firstWhere('key', $key);
@@ -253,7 +246,7 @@ class DemandeResource extends JsonResource
             }
         }
 
-        // Fallback minimal (corrigé: plus de $found hors scope)
+        // Fallback minimal
         return [
             'key'      => $key,
             'title'    => $key,

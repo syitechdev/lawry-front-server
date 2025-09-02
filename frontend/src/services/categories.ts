@@ -89,11 +89,32 @@ export const categories = {
 
   async get(idOrIri: number | string): Promise<Category> {
     try {
-      const url =
-        typeof idOrIri === "string" && idOrIri.startsWith("/api/")
-          ? idOrIri
-          : `/categories/${idOrIri}`;
+      let url: string;
+      let extra: any = {};
+
+      if (typeof idOrIri === "string") {
+        if (idOrIri.startsWith("/api/")) {
+          // essaie d’extraire l’ID de l’IRI (tu as déjà parseIriId2 dans ce fichier)
+          const id = parseIriId2(idOrIri);
+          if (id) {
+            url = `/categories/${id}`;
+          } else {
+            // fallback: construit une URL absolue et neutralise baseURL d’Axios
+            const base =
+              (_http.defaults as any)?.baseURL || window.location.origin;
+            const origin = new URL(base);
+            url = `${origin.origin}${idOrIri}`;
+            extra.baseURL = undefined;
+          }
+        } else {
+          url = `/categories/${idOrIri}`;
+        }
+      } else {
+        url = `/categories/${idOrIri}`;
+      }
+
       const { data } = await _http.get(url, {
+        ...extra,
         headers: { Accept: "application/ld+json" },
       });
       return fromApiCat(data);
@@ -101,7 +122,6 @@ export const categories = {
       throw new Error(apiError(err, "Impossible de charger la catégorie"));
     }
   },
-
   async create(payload: Partial<Category>): Promise<Category> {
     try {
       const body: any = {};

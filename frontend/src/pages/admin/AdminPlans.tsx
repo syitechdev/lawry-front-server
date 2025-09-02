@@ -70,20 +70,21 @@ const AdminPlans = () => {
   }, []);
 
   const getPlanBadgeColor = (couleur: string) => {
+    const key = (couleur || "").toLowerCase();
     const map: Record<string, string> = {
-      Bleu: "bg-blue-100 text-blue-800",
-      Vert: "bg-green-100 text-green-800",
-      Rouge: "bg-red-100 text-red-800",
-      Jaune: "bg-yellow-100 text-yellow-800",
-      Violet: "bg-purple-100 text-purple-800",
-      Orange: "bg-orange-100 text-orange-800",
-      Gris: "bg-gray-100 text-gray-800",
-      Noir: "bg-gray-800 text-white",
-      Blanc: "bg-white text-gray-800 border",
-      Cyan: "bg-cyan-100 text-cyan-800",
-      Rose: "bg-pink-100 text-pink-800",
+      bleu: "bg-blue-100 text-blue-800",
+      vert: "bg-green-100 text-green-800",
+      rouge: "bg-red-100 text-red-800",
+      jaune: "bg-yellow-100 text-yellow-800",
+      violet: "bg-purple-100 text-purple-800",
+      orange: "bg-orange-100 text-orange-800",
+      gris: "bg-gray-100 text-gray-800",
+      noir: "bg-gray-800 text-white",
+      blanc: "bg-white text-gray-800 border",
+      cyan: "bg-cyan-100 text-cyan-800",
+      rose: "bg-pink-100 text-pink-800",
     };
-    return map[couleur] || "bg-gray-100 text-gray-800";
+    return map[key] || "bg-gray-100 text-gray-800";
   };
 
   const onDelete = async (p: Plan) => {
@@ -370,11 +371,42 @@ const AdminPlans = () => {
                       </div>
                     </div>
 
-                    <div className="text-3xl font-bold text-gray-900">
+                    {/* <div className="text-3xl font-bold text-gray-900">
                       {Number(plan.priceCfa ?? 0).toLocaleString()} FCFA
                       <span className="text-lg font-normal text-gray-500">
                         /{plan.period}
                       </span>
+                    </div> */}
+                    <div className="text-center space-y-1 mt-1">
+                      {plan.monthlyPriceCfa > 0 || plan.yearlyPriceCfa > 0 ? (
+                        <>
+                          {plan.monthlyPriceCfa > 0 && (
+                            <div className="text-2xl font-bold text-gray-900">
+                              {plan.monthlyPriceCfa.toLocaleString()} FCFA
+                              <span className="text-sm font-normal text-gray-500">
+                                /Mois
+                              </span>
+                            </div>
+                          )}
+                          {plan.yearlyPriceCfa > 0 && (
+                            <div className="text-xl font-semibold text-gray-800">
+                              {plan.yearlyPriceCfa.toLocaleString()} FCFA
+                              <span className="text-sm font-normal text-gray-500">
+                                /Année
+                              </span>
+                            </div>
+                          )}
+                        </>
+                      ) : (
+                        <div className="text-2xl font-bold text-gray-900">
+                          0 FCFA
+                          {plan.period ? (
+                            <span className="text-sm font-normal text-gray-500">
+                              /{plan.period}
+                            </span>
+                          ) : null}
+                        </div>
+                      )}
                     </div>
 
                     {plan.description ? (

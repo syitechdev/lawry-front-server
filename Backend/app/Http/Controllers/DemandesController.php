@@ -5,23 +5,19 @@ namespace App\Http\Controllers;
 use App\Http\Requests\DemandeStoreRequest;
 use App\Http\Resources\DemandeResource;
 use App\Models\Demande;
-use App\Models\RequestType;
-use Illuminate\Support\Facades\Storage;
-use App\Models\DemandeFile;
-use Illuminate\Http\Request;
-use App\Models\DemandeMessage;
-use Symfony\Component\HttpFoundation\StreamedResponse;
 use App\Models\DemandeEvent;
-use Illuminate\Support\Arr;
-use App\Models\User;
+use App\Models\DemandeFile;
+use App\Models\DemandeMessage;
 use App\Models\EnterpriseType;
 use App\Models\EnterpriseTypeOffer;
-
-
+use App\Models\RequestType;
+use Illuminate\Http\Request;
+use Illuminate\Support\Arr;
+use Illuminate\Support\Facades\Storage;
+use Symfony\Component\HttpFoundation\StreamedResponse;
 
 class DemandesController extends Controller
 {
-
     public function index(Request $request)
     {
         $per = max(1, (int) $request->integer('per_page', 20));
@@ -61,16 +57,11 @@ class DemandesController extends Controller
 
                 return [
                     'ref'          => $d->ref,
-
-                    // On garde "type" léger
                     'type'         => $d->type_slug ? [
                         'slug' => $d->type_slug,
                         'name' => $typeName,
                     ] : null,
-
-                    // On ajoute "service" avec toutes les infos utiles du RequestType
                     'service'      => $service,
-
                     'status'       => $d->status,
                     'priority'     => $d->priority,
                     'is_read'      => (bool) $d->is_read,
@@ -78,20 +69,16 @@ class DemandesController extends Controller
                     'paid_status'  => $d->paid_status,
                     'paid_amount'  => $d->paid_amount,
                     'data'         => $d->data,
-
                     'meta'         => [
                         'type_name'   => $typeName,
                         'client_name' => $clientName,
                     ],
-
                     'submitted_at' => $d->submitted_at,
                     'created_at'   => $d->created_at,
                     'files'        => [],
-
                     'assignee'     => $d->assignee
                         ? ['id' => $d->assignee->id, 'name' => $d->assignee->name, 'email' => $d->assignee->email]
                         : null,
-
                     'author'       => $d->author
                         ? ['id' => $d->author->id, 'name' => $d->author->name, 'email' => $d->author->email]
                         : null,
@@ -117,10 +104,11 @@ class DemandesController extends Controller
         ]);
     }
 
-    public function store(\App\Http\Requests\DemandeStoreRequest $r): \Illuminate\Http\JsonResponse
+    public function store(DemandeStoreRequest $r): \Illuminate\Http\JsonResponse
     {
         $typeSlug = (string) $r->input('type');
-        $rt = \App\Models\RequestType::where('slug', $typeSlug)->firstOrFail();
+        $rt = RequestType::where('slug', $typeSlug)->firstOrFail();
+
         if (!$rt->is_active) abort(422, 'Type désactivé');
 
         $variantKey = (string) $r->input('variant_key', '');
@@ -175,52 +163,22 @@ class DemandesController extends Controller
             }
         }
 
-        // --------- Spécifique "creer-entreprise" (ajout minimal, n'impacte pas les autres types)
         if ($rt->slug === 'creer-entreprise') {
-            if (!$variantKey) {
+            [$etype, $offer, $variantKeyCanonical, $errs] = $this->resolveEnterprisePreset(
+                $variantKey ?: null,
+                $r->integer('enterprise_type_id') ?: null,
+                (string) ($r->input('enterprise_type_sigle') ?: data_get($data, 'enterprise_type_sigle')),
+                (string) $r->input('offer_key')
+            );
+
+            if ($errs) {
                 return response()->json([
-                    'message' => 'The variant key field is required.',
-                    'errors'  => ['variant_key' => ['The variant key field is required.']],
+                    'message' => $errs['variant_key'][0] ?? 'Erreur',
+                    'errors'  => $errs,
                 ], 422);
             }
 
-
-            $raw = preg_replace('/\s+/', '', (string) $variantKey);
-            $parts = preg_split('/(::|:|\||\.|\/)/', $raw);
-
-            // Si "SIGLE:offer_key", on garde tel quel.
-            // Si on a seulement "offer_key", on prend le sigle depuis data.enterprise_type_sigle.
-            $offerKey = (string) ($parts[1] ?? $parts[0] ?? '');
-            $sigle    = strtoupper((string) ($parts[1] ? $parts[0] : data_get($data, 'enterprise_type_sigle', '')));
-
-            if ($sigle === '' || $offerKey === '') {
-                return response()->json([
-                    'message' => 'Variante invalide pour ce type.',
-                    'errors'  => ['variant_key' => ['Variante invalide pour ce type.']],
-                ], 422);
-            }
-
-            $etype = EnterpriseType::where('sigle', $sigle)->first();
-            if (!$etype) {
-                return response()->json([
-                    'message' => 'Type d’entreprise inconnu.',
-                    'errors'  => ['variant_key' => ['Type d’entreprise inconnu.']],
-                ], 422);
-            }
-
-            $offer = EnterpriseTypeOffer::where('enterprise_type_id', $etype->id)
-                ->where('key', $offerKey)
-                ->where('is_active', true)
-                ->first();
-
-            if (!$offer) {
-                return response()->json([
-                    'message' => 'Variante invalide pour ce type.',
-                    'errors'  => ['variant_key' => ['Variante invalide pour ce type.']],
-                ], 422);
-            }
-
-            // Zone tarifaire fournie par le formulaire (par ex. "abidjan" / "interieur")
+            // Zone tarifaire (par défaut abidjan)
             $zoneInput = strtolower((string) (
                 data_get($data, 'zone_tarif') ??
                 data_get($data, 'zone') ??
@@ -229,7 +187,6 @@ class DemandesController extends Controller
                 data_get($data, 'lieu_creation') ??
                 'abidjan'
             ));
-
             $isAbj = str_contains($zoneInput, 'abidjan') || str_contains($zoneInput, 'abj');
 
             $pricingMode = (string) $offer->pricing_mode; // fixed | from | quote
@@ -246,17 +203,14 @@ class DemandesController extends Controller
                 if (is_numeric($amountFixed)) {
                     $priceDisplay = number_format((float)$amountFixed, 0, ',', ' ') . ' ' . $currency;
                 } else {
-                    // si pas de montant défini, on bascule sur "Sur devis"
                     $pricingMode = 'quote';
                     $priceDisplay = 'Sur devis';
                 }
             } elseif ($pricingMode === 'from') {
-                // "À partir de" = on prend le plus petit prix non null/numérique
                 $candidates = array_values(array_filter([
                     is_numeric($offer->price_amount_abidjan) ? (float)$offer->price_amount_abidjan : null,
                     is_numeric($offer->price_amount_interior) ? (float)$offer->price_amount_interior : null,
                 ], fn($v) => $v !== null));
-
                 if (!empty($candidates)) {
                     $min = min($candidates);
                     $priceDisplay = 'À partir de ' . number_format($min, 0, ',', ' ') . ' ' . $currency;
@@ -264,14 +218,13 @@ class DemandesController extends Controller
                     $priceDisplay = 'À partir de —';
                 }
             } else {
-                // quote
                 $priceDisplay = 'Sur devis';
             }
 
-            // Normalise le variant_key stocké
-            $variantKey = $etype->sigle . ':' . $offer->key;
+            // impose la variant_key canonique
+            $variantKey = $variantKeyCanonical;
 
-            // Pousse un bloc selected_preset homogène dans $data (exigé côté front)
+            // Snapshot homogène pour le front
             $data['selected_preset'] = [
                 'label'         => $etype->sigle . ' — ' . ($offer->title ?: $offer->key),
                 'price'         => is_numeric($amountFixed) ? (float)$amountFixed : null,
@@ -291,9 +244,11 @@ class DemandesController extends Controller
                     ],
                 ],
             ];
+
+            // Pour cohérence historique côté front
+            $data['enterprise_type_sigle'] = $etype->sigle;
         }
 
-        // --- meta (inchangé)
         $meta = [
             'ip'        => $r->ip(),
             'ua'        => $r->userAgent(),
@@ -303,8 +258,7 @@ class DemandesController extends Controller
             $meta['selected_preset'] = data_get($data, 'selected_preset');
         }
 
-        // --- creation (inchangé, on garde currency du RequestType)
-        $demande = \App\Models\Demande::create([
+        $demande = Demande::create([
             'type_slug'    => $typeSlug,
             'type_version' => (int) ($rt->version ?? 1),
             'variant_key'  => $variantKey ?: null,
@@ -320,13 +274,12 @@ class DemandesController extends Controller
             'submitted_at' => now(),
         ]);
 
-        // --- upload fichiers (inchangé)
         if ($r->hasFile('files')) {
             foreach ($r->file('files') as $tag => $fileOrList) {
                 $files = is_array($fileOrList) ? $fileOrList : [$fileOrList];
                 foreach ($files as $f) {
                     $path = $f->store("demandes/{$demande->ref}", 'public');
-                    \App\Models\DemandeFile::create([
+                    DemandeFile::create([
                         'demande_id'    => $demande->id,
                         'tag'           => $tag,
                         'original_name' => $f->getClientOriginalName(),
@@ -340,7 +293,7 @@ class DemandesController extends Controller
         } elseif ($r->hasFile('files.attachments')) {
             foreach ($r->file('files.attachments') as $f) {
                 $path = $f->store("demandes/{$demande->ref}", 'public');
-                \App\Models\DemandeFile::create([
+                DemandeFile::create([
                     'demande_id'    => $demande->id,
                     'tag'           => 'attachments',
                     'original_name' => $f->getClientOriginalName(),
@@ -353,7 +306,7 @@ class DemandesController extends Controller
         }
 
         return response()->json([
-            'demande'      => \App\Http\Resources\DemandeResource::make($demande->fresh()),
+            'demande'      => DemandeResource::make($demande->fresh()),
             'updated_user' => $user ? [
                 'id'          => $user->id,
                 'name'        => $user->name,
@@ -366,7 +319,6 @@ class DemandesController extends Controller
         ]);
     }
 
-
     public function show(Demande $demande)
     {
         $demande->load([
@@ -377,25 +329,25 @@ class DemandesController extends Controller
             'events',
         ]);
 
-        $typeName = \App\Models\RequestType::where('slug', $demande->type_slug)->value('name') ?? $demande->type_slug;
+        $typeName = RequestType::where('slug', $demande->type_slug)->value('name') ?? $demande->type_slug;
         $demande->meta = array_merge($demande->meta ?? [], ['type_name' => $typeName]);
 
-        return \App\Http\Resources\DemandeResource::make($demande);
+        return DemandeResource::make($demande);
     }
 
-    // Lu/non-lu
     public function markRead(Demande $demande)
     {
         $demande->update(['is_read' => true]);
         return response()->json(['ok' => true]);
     }
+
     public function markUnread(Demande $demande)
     {
         $demande->update(['is_read' => false]);
         return response()->json(['ok' => true]);
     }
 
-    public function assign(Request $request, \App\Models\Demande $demande)
+    public function assign(Request $request, Demande $demande)
     {
         $data = $request->validate([
             'user_id' => ['required', 'exists:users,id'],
@@ -405,9 +357,9 @@ class DemandesController extends Controller
         $demande->save();
 
         $demande->events()->create([
-            'event'    => 'assigned',
-            'payload'  => ['user_id' => $data['user_id']],
-            'actor_id' => optional($request->user())->id,
+            'event'      => 'assigned',
+            'payload'    => ['user_id' => $data['user_id']],
+            'actor_id'   => optional($request->user())->id,
             'actor_name' => optional($request->user())->name,
         ]);
 
@@ -421,7 +373,6 @@ class DemandesController extends Controller
         ]);
     }
 
-
     public function postMessage(Request $r, Demande $demande)
     {
         $data = $r->validate([
@@ -429,7 +380,7 @@ class DemandesController extends Controller
             'is_internal' => ['sometimes', 'boolean'],
         ]);
 
-        \App\Models\DemandeMessage::create([
+        DemandeMessage::create([
             'demande_id'  => $demande->id,
             'sender_id'   => optional($r->user())->id,
             'sender_role' => 'staff',
@@ -459,7 +410,7 @@ class DemandesController extends Controller
             $tags[] = $tag;
             foreach ($files as $f) {
                 $path = $f->store("demandes/{$demande->ref}");
-                \App\Models\DemandeFile::create([
+                DemandeFile::create([
                     'demande_id'    => $demande->id,
                     'tag'           => $tag,
                     'original_name' => $f->getClientOriginalName(),
@@ -472,7 +423,7 @@ class DemandesController extends Controller
             }
         }
 
-        \App\Models\DemandeEvent::create([
+        DemandeEvent::create([
             'demande_id' => $demande->id,
             'event'      => 'files_uploaded',
             'payload'    => ['count' => $count, 'tags' => $tags],
@@ -483,11 +434,10 @@ class DemandesController extends Controller
         return response()->json(['ok' => true]);
     }
 
-
     public function viewFile(Demande $demande, DemandeFile $file)
     {
         abort_unless($file->demande_id === $demande->id, 404);
-        $disk = \Illuminate\Support\Facades\Storage::disk('public');
+        $disk = Storage::disk('public');
 
         if (!$disk->exists($file->path)) {
             abort(404, 'Fichier introuvable');
@@ -504,34 +454,31 @@ class DemandesController extends Controller
         ]);
     }
 
-
-
     public function unreadCount(Request $r)
     {
         $q = Demande::query()->where('is_read', false);
-        if ($r->filled('type'))       $q->where('type_slug', $r->string('type'));
+        if ($r->filled('type'))        $q->where('type_slug', $r->string('type'));
         if ($r->filled('assigned_to')) $q->where('assigned_to', $r->integer('assigned_to'));
-        if ($r->filled('priority'))   $q->where('priority', $r->string('priority'));
-        if ($r->filled('status'))     $q->where('status', $r->string('status'));
+        if ($r->filled('priority'))    $q->where('priority', $r->string('priority'));
+        if ($r->filled('status'))      $q->where('status', $r->string('status'));
 
         return response()->json(['unread' => (int) $q->count()]);
     }
 
     private function applyListFilters(Request $r, $q)
     {
-        if ($r->filled('type'))       $q->where('type_slug', $r->string('type'));
-        if ($r->filled('status'))     $q->where('status', $r->string('status'));
-        if ($r->filled('priority'))   $q->where('priority', $r->string('priority'));
+        if ($r->filled('type'))        $q->where('type_slug', $r->string('type'));
+        if ($r->filled('status'))      $q->where('status', $r->string('status'));
+        if ($r->filled('priority'))    $q->where('priority', $r->string('priority'));
         if ($r->filled('assigned_to')) $q->where('assigned_to', $r->integer('assigned_to'));
-        if ($r->filled('unread'))     $q->where('is_read', filter_var($r->input('unread'), FILTER_VALIDATE_BOOLEAN));
-        if ($r->filled('date_from'))  $q->whereDate('created_at', '>=', $r->date('date_from'));
-        if ($r->filled('date_to'))    $q->whereDate('created_at', '<=', $r->date('date_to'));
+        if ($r->filled('unread'))      $q->where('is_read', filter_var($r->input('unread'), FILTER_VALIDATE_BOOLEAN));
+        if ($r->filled('date_from'))   $q->whereDate('created_at', '>=', $r->date('date_from'));
+        if ($r->filled('date_to'))     $q->whereDate('created_at', '<=', $r->date('date_to'));
 
         if ($s = trim((string)$r->input('q'))) {
             $q->where(function ($qq) use ($s) {
                 $qq->where('ref', 'like', "%{$s}%")
                     ->orWhere('type_slug', 'like', "%{$s}%")
-                    // ajoute si utile: recherche dans les champs métier fréquents
                     ->orWhere('data->poste', 'like', "%{$s}%");
             });
         }
@@ -542,7 +489,6 @@ class DemandesController extends Controller
     {
         $q = $this->applyListFilters($r, Demande::query()->with(['assignee:id,name', 'author:id,name'])->latest('id'));
 
-        // map slug -> libellé
         $typeMap = RequestType::pluck('name', 'slug')->all();
 
         $filename = 'demandes-' . now()->format('Ymd-His') . '.csv';
@@ -554,9 +500,7 @@ class DemandesController extends Controller
 
         return response()->stream(function () use ($q, $typeMap) {
             $out = fopen('php://output', 'w');
-            // BOM UTF-8 pour Excel
             fwrite($out, chr(0xEF) . chr(0xBB) . chr(0xBF));
-
             fputcsv($out, ['Ref', 'Client', 'Type', 'Statut', 'Urgence', 'Assigné à', 'Créée le']);
 
             $q->chunk(500, function ($rows) use ($out, $typeMap) {
@@ -613,7 +557,7 @@ class DemandesController extends Controller
         $demande->priority = $data['priority'];
         $demande->save();
 
-        \App\Models\DemandeEvent::create([
+        DemandeEvent::create([
             'demande_id' => $demande->id,
             'event'      => 'priority_changed',
             'payload'    => ['priority' => $data['priority']],
@@ -622,5 +566,65 @@ class DemandesController extends Controller
         ]);
 
         return response()->json(['ok' => true, 'priority' => $demande->priority]);
+    }
+
+    /**
+     * Résolution robuste de l’EnterpriseType + Offer, compatible avec:
+     * - enterprise_type_id
+     * - enterprise_type_sigle (ou signification)
+     * - variant_key "SIGLE:offer_key"
+     * - offer_key
+     *
+     * @return array{0: ?EnterpriseType, 1: ?EnterpriseTypeOffer, 2: ?string, 3: ?array}
+     */
+    private function resolveEnterprisePreset(?string $variantKey, ?int $etypeId, ?string $etypeSigle, ?string $offerKey): array
+    {
+        $etype = null;
+
+        if ($etypeId) {
+            $etype = EnterpriseType::find($etypeId);
+        }
+
+        if (!$etype && $etypeSigle) {
+            $sig = strtoupper(trim(preg_replace('/\s+/', ' ', $etypeSigle)));
+            $etype = EnterpriseType::query()
+                ->whereRaw('UPPER(sigle) = ?', [$sig])
+                ->orWhereRaw('UPPER(signification) = ?', [$sig])
+                ->first();
+        }
+
+        if (!$etype && $variantKey && str_contains($variantKey, ':')) {
+            [$sig, $ok] = explode(':', $variantKey, 2);
+            $sig = strtoupper(trim($sig));
+            $offerKey = $offerKey ?: trim($ok);
+            $etype = EnterpriseType::query()
+                ->whereRaw('UPPER(sigle) = ?', [$sig])
+                ->orWhereRaw('UPPER(signification) = ?', [$sig])
+                ->first();
+        }
+
+        if (!$etype) {
+            return [null, null, null, ['variant_key' => ['Type d’entreprise inconnu.']]];
+        }
+
+        if (!$offerKey && $variantKey && str_contains($variantKey, ':')) {
+            [, $offerKey] = explode(':', $variantKey, 2);
+            $offerKey = trim((string) $offerKey);
+        }
+
+        $offer = null;
+        if ($offerKey) {
+            $offer = EnterpriseTypeOffer::where('enterprise_type_id', $etype->id)
+                ->where('key', $offerKey)
+                ->where('is_active', true)
+                ->first();
+        }
+
+        if (!$offer) {
+            return [$etype, null, null, ['variant_key' => ['Variante invalide pour ce type.']]];
+        }
+
+        $vk = "{$etype->sigle}:{$offer->key}";
+        return [$etype, $offer, $vk, null];
     }
 }

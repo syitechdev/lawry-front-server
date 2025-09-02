@@ -81,6 +81,9 @@ import DemandesList from "@/pages/admin/DemandesList";
 import AdminRedigerContrat from "./pages/admin/types/AdminRedigerContrat";
 import AdminSefaireConseiler from "@/pages/admin/types/AdminSefaireConseiler";
 import AdminEnterpriseTypeOffers from "@/pages/admin/types/AdminEnterpriseTypeOffers";
+import AdminContacts from "@/pages/admin/AdminContacts";
+import AdminNewsletter from "./pages/admin/AdminNewsletter";
+import AdminConseils from "./pages/admin/AdminConseils";
 
 // Client
 import ClientCommandes from "./pages/client/ClientCommandes";
@@ -106,7 +109,7 @@ const App = () => (
               <Route path="/services" element={<Services />} />
               <Route path="/formation" element={<Formation />} />
               <Route path="/blog" element={<Blog />} />
-              <Route path="/blog/:id" element={<BlogDetail />} />
+              <Route path="/blog/:slug" element={<BlogDetail />} />
               <Route path="/contact" element={<Contact />} />
               <Route path="/login" element={<Login />} />
               <Route path="/register" element={<Register />} />
@@ -117,8 +120,8 @@ const App = () => (
               <Route path="/boutique" element={<Boutique />} />
               <Route path="/cart" element={<Cart />} />
               <Route path="/chatbot" element={<ChatBot />} />
-              <Route path="/dossier-tracking" element={<DossierTracking />} />
               <Route path="/suivi-dossier" element={<DossierTracking />} />
+              <Route path="/suivi-dossier/:ref" element={<DossierTracking />} />
 
               <Route path="/payment/return" element={<PaymentReturn />} />
 
@@ -310,6 +313,7 @@ const App = () => (
                 <Route path="/admin/categories" element={<AdminCategories />} />
                 <Route path="/admin/boutique" element={<AdminBoutique />} />
                 <Route path="/admin/formations" element={<AdminFormations />} />
+                <Route path="/admin/contacts" element={<AdminContacts />} />
                 <Route
                   path="/admin/types/rediger-contrat"
                   element={<AdminRedigerContrat />}
@@ -345,6 +349,11 @@ const App = () => (
                 <Route
                   path="/admin/demande/:id"
                   element={<AdminDemandeDetail />}
+                />
+                <Route path="/admin/newsletter" element={<AdminNewsletter />} />
+                <Route
+                  path="/admin/conseils-gratuits"
+                  element={<AdminConseils />}
                 />
               </Route>
 

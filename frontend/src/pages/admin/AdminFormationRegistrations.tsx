@@ -5,7 +5,14 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
-import { Filter, Download, Eye, Edit } from "lucide-react";
+import {
+  Filter,
+  Download,
+  Eye,
+  Edit,
+  ChevronLeft,
+  ChevronRight,
+} from "lucide-react";
 import { toast } from "sonner";
 import { http } from "@/lib/http";
 
@@ -21,7 +28,7 @@ type RawRegistration = any;
 
 type Row = {
   id: number;
-  formation_code: string; // <<< NOUVEAU
+  formation_code: string;
   participant: string;
   email?: string | null;
   status: string;
@@ -74,7 +81,7 @@ const adaptRow = (r: RawRegistration): Row => {
 
   return {
     id: Number(r?.id),
-    formation_code: makeFormationCode(r), // <<< NOUVEAU
+    formation_code: makeFormationCode(r),
     participant: String(userName || "—"),
     email: r?.email ?? r?.user?.email ?? null,
     status: r?.status ?? "",
@@ -111,6 +118,10 @@ export default function AdminFormationRegistrations() {
   const [rows, setRows] = useState<Row[]>([]);
   const [loading, setLoading] = useState(true);
 
+  // États pour la pagination
+  const [currentPage, setCurrentPage] = useState(1);
+  const [itemsPerPage, setItemsPerPage] = useState(10);
+
   const load = async () => {
     setLoading(true);
     try {
@@ -141,13 +152,27 @@ export default function AdminFormationRegistrations() {
     if (!q) return rows;
     return rows.filter(
       (r) =>
-        r.formation_code.toLowerCase().includes(q) || // inclut le code dans la recherche
+        r.formation_code.toLowerCase().includes(q) ||
         r.participant.toLowerCase().includes(q) ||
         (r.email || "").toLowerCase().includes(q) ||
         String(r.id).toLowerCase().includes(q) ||
         (r.formation_title || "").toLowerCase().includes(q)
     );
   }, [rows, searchTerm]);
+
+  // Calcul des données paginées
+  const paginatedData = useMemo(() => {
+    const startIndex = (currentPage - 1) * itemsPerPage;
+    return filtered.slice(startIndex, startIndex + itemsPerPage);
+  }, [filtered, currentPage, itemsPerPage]);
+
+  const totalPages = Math.ceil(filtered.length / itemsPerPage);
+
+  const handlePageChange = (page: number) => {
+    if (page >= 1 && page <= totalPages) {
+      setCurrentPage(page);
+    }
+  };
 
   const voirDetails = async (id: number) => {
     setRows((prev) => prev.map((r) => (r.id === id ? { ...r, lu: true } : r)));
@@ -172,7 +197,7 @@ export default function AdminFormationRegistrations() {
       ].join(","),
       ...filtered.map((r) =>
         [
-          r.id, // tu n'as pas demandé à changer l'export, je laisse l'ID ici
+          r.id,
           r.participant,
           r.email ?? "",
           r.status_label,
@@ -274,9 +299,8 @@ export default function AdminFormationRegistrations() {
               <table className="w-full">
                 <thead>
                   <tr className="border-b">
-                    <th className="text-left p-3">Code de la formation</th>{" "}
+                    <th className="text-left p-3">Code de la formation</th>
                     <th className="text-left p-3">Participant</th>
-                    {/* <th className="text-left p-3">Email</th> */}
                     <th className="text-left p-3">Statut</th>
                     <th className="text-left p-3">Formation</th>
                     <th className="text-left p-3">Date</th>
@@ -287,14 +311,14 @@ export default function AdminFormationRegistrations() {
                 <tbody>
                   {loading && (
                     <tr>
-                      <td className="p-6 text-gray-500" colSpan={8}>
+                      <td className="p-6 text-gray-500" colSpan={6}>
                         Chargement…
                       </td>
                     </tr>
                   )}
 
                   {!loading &&
-                    filtered.map((r) => (
+                    paginatedData.map((r) => (
                       <tr
                         key={r.id}
                         className={`border-b hover:bg-gray-50 ${
@@ -312,20 +336,17 @@ export default function AdminFormationRegistrations() {
                           </div>
                         </td>
                         <td className="p-3">{r.participant}</td>
-                        {/* <td className="p-3">{r.email || "—"}</td> */}
                         <td className="p-3">
                           <Badge className={getStatutBadge(r.status_label)}>
                             {r.status_label}
                           </Badge>
                         </td>
-                        {/* <td className="p-3">{r.session_format_label}</td> */}
                         <td className="p-3">{r.formation_title || "—"}</td>
                         <td className="p-3">
                           {new Date(r.created_at).toLocaleDateString()}
                         </td>
                         <td className="p-3">
                           <div className="flex items-center space-x-2">
-                            {/* Icônes cliquables sans Button */}
                             <span
                               role="button"
                               title="Voir détails"
@@ -351,13 +372,91 @@ export default function AdminFormationRegistrations() {
 
                   {!loading && filtered.length === 0 && (
                     <tr>
-                      <td className="p-6 text-gray-500 text-center" colSpan={8}>
+                      <td className="p-6 text-gray-500 text-center" colSpan={6}>
                         Aucune inscription trouvée
                       </td>
                     </tr>
                   )}
                 </tbody>
               </table>
+
+              {/* Pagination */}
+              {!loading && filtered.length > 0 && (
+                <div className="flex items-center justify-between mt-4 px-2">
+                  <div className="text-sm text-gray-600">
+                    Page {currentPage}/{totalPages} — {paginatedData.length} sur{" "}
+                    {filtered.length} éléments
+                  </div>
+                  <div className="flex items-center space-x-2">
+                    <select
+                      value={itemsPerPage}
+                      onChange={(e) => {
+                        setItemsPerPage(Number(e.target.value));
+                        setCurrentPage(1);
+                      }}
+                      className="border rounded-md px-2 py-1 text-sm"
+                    >
+                      <option value="5">5</option>
+                      <option value="10">10</option>
+                      <option value="20">20</option>
+                      <option value="50">50</option>
+                    </select>
+
+                    <div className="flex items-center space-x-1">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => handlePageChange(currentPage - 1)}
+                        disabled={currentPage === 1}
+                        className="h-8 w-8 p-0"
+                      >
+                        <ChevronLeft className="h-4 w-4" />
+                      </Button>
+
+                      {Array.from(
+                        { length: Math.min(5, totalPages) },
+                        (_, i) => {
+                          // Afficher les numéros de page de manière intelligente
+                          let pageNum;
+                          if (totalPages <= 5) {
+                            pageNum = i + 1;
+                          } else if (currentPage <= 3) {
+                            pageNum = i + 1;
+                          } else if (currentPage >= totalPages - 2) {
+                            pageNum = totalPages - 4 + i;
+                          } else {
+                            pageNum = currentPage - 2 + i;
+                          }
+
+                          return (
+                            <Button
+                              key={pageNum}
+                              variant={
+                                currentPage === pageNum ? "default" : "outline"
+                              }
+                              size="sm"
+                              onClick={() => handlePageChange(pageNum)}
+                              className="h-8 w-8 p-0"
+                            >
+                              {pageNum}
+                            </Button>
+                          );
+                        }
+                      )}
+
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => handlePageChange(currentPage + 1)}
+                        disabled={currentPage === totalPages}
+                        className="h-8 w-8 p-0"
+                      >
+                        <ChevronRight className="h-4 w-4" />
+                      </Button>
+                    </div>
+                  </div>
+                </div>
+              )}
             </div>
           </CardContent>
         </Card>

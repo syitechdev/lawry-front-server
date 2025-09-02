@@ -21,7 +21,14 @@ use App\Http\Controllers\Admin\EnterpriseTypeController;
 use App\Http\Controllers\Admin\EnterpriseTypeOffersController;
 use App\Http\Controllers\Admin\RequestTypePublicController;
 use App\Http\Controllers\PaymentController;
-
+use App\Http\Controllers\Client\ClienAdminController;
+use App\Http\Controllers\ContactsPublicController;
+use App\Http\Controllers\Admin\ContactsController;
+use App\Http\Controllers\NewsletterPublicController;
+use App\Http\Controllers\Admin\NewsletterAdminController;
+use App\Http\Controllers\ConseilsGratuitsController;
+use App\Http\Controllers\TrackDemandeController;
+use App\Http\Controllers\Admin\ConseilsGratuitsController as AdminCG;
 
 
 
@@ -41,7 +48,20 @@ Route::prefix('v1')->group(function () {
     Route::get('registrations/mine', [RegistrationController::class, 'mine'])->middleware('auth:sanctum');
     Route::get('public/registrations/mine', [RegistrationController::class, 'mine'])->middleware('auth:sanctum');
 
+    //Contact 
+    Route::post('/contacts', [ContactsPublicController::class, 'store']);
+    // Conseil Gratuit Form
+    Route::post('/conseils-gratuits', [ConseilsGratuitsController::class, 'store']);
+
+
+    //Newsletter
+    Route::post('/newsletter/subscribe', [NewsletterPublicController::class, 'subscribe']);
+    Route::post('/newsletter/unsubscribe', [NewsletterPublicController::class, 'unsubscribe']);
+
     //Demande management
+    Route::get('/track', [TrackDemandeController::class, 'show'])
+        ->middleware('throttle:20,1');
+
     Route::post('demandes', [DemandesController::class, 'store']);
     Route::get('/request-types/rediger-contrat', [RequestTypeController::class, 'publicContrats']);
     Route::get('/request-types/rediger-contrat/variants/{key}', [RequestTypeController::class, 'publicContratVariant']);
@@ -72,6 +92,12 @@ Route::prefix('v1')->group(function () {
 
         Route::patch('auth/update-me', [AuthController::class, 'updateMe']);
 
+        // Client only
+        Route::middleware('role:Client')->group(function () {
+            Route::get('client/dashboard', [ClienAdminController::class, 'index']);
+            Route::get('client/orders', [ClienAdminController::class, 'orders']);
+            Route::get('/client/orders/{ref}', [ClienAdminController::class, 'show']);
+        });
 
         // Admin only
         Route::middleware('role:Admin')->group(function () {
@@ -161,6 +187,40 @@ Route::prefix('v1')->group(function () {
             Route::post('admin/enterprise-type-offers/{offer}/unpublish', [EnterpriseTypeOffersController::class, 'unpublish'])
                 ->whereNumber('offer')
                 ->name('enterprise-type-offers.unpublish');
+
+            // Contact
+            Route::get('admin/contacts',                 [ContactsController::class, 'index']);
+            Route::get('admin/contacts/stats',           [ContactsController::class, 'stats']);
+            Route::get('admin/contacts/{contact}',       [ContactsController::class, 'show']);
+            Route::post('admin/contacts/{contact}/read',  [ContactsController::class, 'markRead']);
+            Route::post('admin/contacts/{contact}/unread', [ContactsController::class, 'markUnread']);
+            Route::post('admin/contacts/{contact}/status', [ContactsController::class, 'updateStatus']);
+            Route::post('admin/contacts/{contact}/assign', [ContactsController::class, 'assign']);
+            Route::delete('admin/contacts/{contact}',       [ContactsController::class, 'destroy']);
+
+            // Newsletter
+            Route::get('admin/newsletter',        [NewsletterAdminController::class, 'index']);
+            Route::get('admin/newsletter/stats',  [NewsletterAdminController::class, 'stats']);
+            Route::delete('admin/newsletter/{subscription}', [NewsletterAdminController::class, 'destroy']);
+
+            Route::get('admin/conseils-gratuits/stats', [AdminCG::class, 'stats']);
+
+            Route::get('admin/conseils-gratuits', [AdminCG::class, 'index']);
+
+            Route::get('admin/conseils-gratuits/{conseil}', [AdminCG::class, 'show'])
+                ->whereNumber('conseil');
+
+            Route::post('admin/conseils-gratuits/{conseil}/read',   [AdminCG::class, 'markRead'])
+                ->whereNumber('conseil');
+
+            Route::post('admin/conseils-gratuits/{conseil}/unread', [AdminCG::class, 'markUnread'])
+                ->whereNumber('conseil');
+
+            Route::patch('admin/conseils-gratuits/{conseil}/status', [AdminCG::class, 'updateStatus'])
+                ->whereNumber('conseil');
+
+            Route::delete('admin/conseils-gratuits/{conseil}', [AdminCG::class, 'destroy'])
+                ->whereNumber('conseil');
         });
 
         Route::middleware(['auth:sanctum', 'permission:rbac.manage'])->prefix('admin/rbac')->group(function () {

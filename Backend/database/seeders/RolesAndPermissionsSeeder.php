@@ -53,7 +53,7 @@ class RolesAndPermissionsSeeder extends Seeder
             'request-types.delete',
 
             // Blog / Articles
-            'articles.read',
+
             'articles.create',
             'articles.update',
             'articles.delete',
@@ -99,6 +99,18 @@ class RolesAndPermissionsSeeder extends Seeder
             'tarifs.create',
             'tarifs.update',
             'tarifs.delete',
+
+            //contacts
+            'contacts.read',
+            'contacts.update',
+            'contacts.delete',
+
+            'newsletter.read',
+            'newsletter.delete',
+
+            'conseils.read',
+            'conseils.update',
+            'conseils.delete',
         ];
 
         foreach ($permissions as $name) {
@@ -121,6 +133,9 @@ class RolesAndPermissionsSeeder extends Seeder
             'demandes.comment',
             'registrations.read',
             'registrations.mark',
+
+            'contacts.read',
+            'contacts.update',
         ]);
 
         // Manager
@@ -135,6 +150,16 @@ class RolesAndPermissionsSeeder extends Seeder
             'registrations.export',
             'request-types.read',
             'request-types.update',
+
+            'contacts.read',
+            'contacts.update',
+
+            'newsletter.read',
+            'newsletter.delete',
+
+            'conseils.read',
+            'conseils.update',
+            'conseils.delete',
 
         ]);
 

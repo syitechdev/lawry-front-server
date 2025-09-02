@@ -32,7 +32,7 @@ const Footer = () => {
             </p>
 
             {/* Bouton App Mobile */}
-            <div className="mb-4">
+            {/* <div className="mb-4">
               <Button
                 variant="outline"
                 size="sm"
@@ -44,26 +44,29 @@ const Footer = () => {
                   Télécharger l'app mobile
                 </Link>
               </Button>
-            </div>
+            </div> */}
 
             <div className="flex justify-center sm:justify-start space-x-4">
               <a
-                href="#"
+                href="https://www.facebook.com/lawryconsulting"
+                target="_blank"
                 className="text-gray-400 hover:text-red-500 transition-colors"
               >
                 <Facebook className="h-4 w-4 sm:h-5 sm:w-5" />
+              </a>
+
+              <a
+                href="https://www.linkedin.com/company/lawry-conseil-assistance-juridique/"
+                target="_blank"
+                className="text-gray-400 hover:text-red-500 transition-colors"
+              >
+                <Linkedin className="h-4 w-4 sm:h-5 sm:w-5" />
               </a>
               <a
                 href="#"
                 className="text-gray-400 hover:text-red-500 transition-colors"
               >
                 <Twitter className="h-4 w-4 sm:h-5 sm:w-5" />
-              </a>
-              <a
-                href="#"
-                className="text-gray-400 hover:text-red-500 transition-colors"
-              >
-                <Linkedin className="h-4 w-4 sm:h-5 sm:w-5" />
               </a>
               <a
                 href="#"

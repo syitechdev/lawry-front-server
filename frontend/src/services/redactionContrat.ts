@@ -53,8 +53,7 @@ export async function submitContractRequest(
 
   if (payload.partie1Telephone)
     fd.append("data[phone]", String(payload.partie1Telephone));
-  if (payload.partie1Email)
-    fd.append("data[email]", String(payload.partie1Email));
+  if (payload.email) fd.append("data[email]", String(payload.email));
 
   const spLabel = offer?.title || variantKey || "Contrat";
   const spPrice = typeof offer?.price === "number" ? offer?.price : null;

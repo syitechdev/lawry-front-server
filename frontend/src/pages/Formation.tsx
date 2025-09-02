@@ -29,6 +29,7 @@ import {
   checkAlreadyRegistered,
   listMyFormationIds,
 } from "@/services/registrations";
+import Footer from "@/components/Footer";
 
 type PublicFormation = {
   id: number;
@@ -908,6 +909,7 @@ const Formation = () => {
           </div>
         </div>
       </section>
+      <Footer />
     </div>
   );
 };

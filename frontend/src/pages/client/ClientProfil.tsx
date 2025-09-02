@@ -77,9 +77,9 @@ const ClientProfil = () => {
 
       <div className="ml-80 px-8 py-8">
         <div className="mb-8">
-          <div className="bg-gradient-to-r from-red-700 to-red-600 text-white rounded-2xl p-6 shadow-xl">
+          <div className="bg-gradient-to-r from-blue-900 to-blue-800 text-white rounded-2xl p-6 shadow-xl">
             <h1 className="text-3xl font-bold mb-2">Mon Profil</h1>
-            <p className="text-red-100">
+            <p className="text-blue-100">
               Gérer vos informations personnelles et sécurité
             </p>
           </div>

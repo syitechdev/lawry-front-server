@@ -24,7 +24,9 @@ import {
   Crown,
   Crop,
   Tags,
-  Building2,
+  BookCheck,
+  Mail,
+  MessageSquare,
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { logout } from "@/lib/auth";
@@ -40,6 +42,8 @@ import {
   labelForRequestType,
   pathForRequestType,
 } from "@/services/requestTypeRegistry";
+import { getContactStats } from "@/services/contacts";
+import { http } from "@/lib/http"; // <-- pour stats Conseil Gratuit
 
 type RoleName = "Admin" | "Client" | string;
 
@@ -82,6 +86,8 @@ const BackofficeSidebar = ({
   const location = useLocation();
   const navigate = useNavigate();
   const { toast } = useToast();
+  const [unreadContacts, setUnreadContacts] = useState<number | null>(null);
+  const [unreadConseils, setUnreadConseils] = useState<number | null>(null); // <-- NEW
 
   // --- Auth local
   const [authUser, setAuthUser] = useState<CurrentUser | null>(null);
@@ -164,10 +170,37 @@ const BackofficeSidebar = ({
     }
   };
 
+  // Charger stats Contacts + Conseil Gratuit
+  const loadContactLikeStats = async () => {
+    if (role !== "admin") return;
+    try {
+      const [cStats, cgStats] = await Promise.all([
+        getContactStats().catch(() => ({ unread: 0 })),
+        http
+          .get("/admin/conseils-gratuits/stats")
+          .then((r) => r.data)
+          .catch(() => ({ unread: 0 })),
+      ]);
+      setUnreadContacts(
+        typeof cStats?.unread === "number" && cStats.unread > 0
+          ? cStats.unread
+          : null
+      );
+      setUnreadConseils(
+        typeof cgStats?.unread === "number" && cgStats.unread > 0
+          ? cgStats.unread
+          : null
+      );
+    } catch {
+      setUnreadContacts(null);
+      setUnreadConseils(null);
+    }
+  };
+
   useEffect(() => {
     loadCounters();
     loadRequestTypes();
-    //
+    loadContactLikeStats();
   }, [location.pathname, role]);
 
   const requestTypeLinks = useMemo(() => {
@@ -187,6 +220,13 @@ const BackofficeSidebar = ({
       location.pathname.startsWith("/admin/types/")
   );
 
+  const [openContactsGroup, setOpenContactsGroup] = useState<boolean>( // <-- NEW
+    () =>
+      location.pathname.startsWith("/admin/contacts") ||
+      location.pathname.startsWith("/admin/newsletter") ||
+      location.pathname.startsWith("/admin/conseils-gratuits")
+  );
+
   useEffect(() => {
     try {
       const raw = localStorage.getItem("bo_sidebar_open");
@@ -194,18 +234,23 @@ const BackofficeSidebar = ({
         const v = JSON.parse(raw);
         if (typeof v?.dem === "boolean") setOpenDemandes(v.dem);
         if (typeof v?.typ === "boolean") setOpenTypes(v.typ);
+        if (typeof v?.cnt === "boolean") setOpenContactsGroup(v.cnt); // <-- NEW
       }
-    } catch {}
-    //
+    } catch {
+      //
+    }
   }, []);
 
   useEffect(() => {
     localStorage.setItem(
       "bo_sidebar_open",
-      JSON.stringify({ dem: openDemandes, typ: openTypes })
+      JSON.stringify({
+        dem: openDemandes,
+        typ: openTypes,
+        cnt: openContactsGroup,
+      })
     );
-  }, [openDemandes, openTypes]);
-
+  }, [openDemandes, openTypes, openContactsGroup]);
   const themeColors =
     role === "admin"
       ? {
@@ -217,13 +262,21 @@ const BackofficeSidebar = ({
           normalLink: "text-gray-700 hover:bg-red-50 hover:text-red-800",
         }
       : {
-          primary: "bg-gradient-to-br from-red-700 via-red-600 to-red-700",
-          secondary: "bg-red-100 text-red-700 border-red-200",
-          hover: "hover:bg-red-50",
+          primary: "bg-gradient-to-br from-blue-900 to-blue-800",
+          secondary: "bg-blue-100 text-blue-800 border-blue-200",
+          hover: "hover:bg-blue-50",
           activeLink:
-            "bg-gradient-to-r from-red-100 to-red-50 text-red-800 border-r-4 border-red-600 shadow-sm",
-          normalLink: "text-gray-700 hover:bg-red-50 hover:text-red-700",
+            "bg-gradient-to-r from-blue-100 to-blue-50 text-blue-800 border-r-4 border-blue-600 shadow-sm",
+          normalLink: "text-gray-700 hover:bg-blue-50 hover:text-blue-800",
         };
+
+  // --- Somme badge parent Contacts = unreadContacts + unreadConseils
+  const contactsParentBadge = useMemo(() => {
+    const a = unreadContacts ?? 0;
+    const b = unreadConseils ?? 0;
+    const sum = a + b;
+    return sum > 0 ? String(sum) : null;
+  }, [unreadContacts, unreadConseils]);
 
   const adminMenuItems: MenuItem[] = useMemo(
     () => [
@@ -281,7 +334,14 @@ const BackofficeSidebar = ({
         path: "/admin/categories",
         badge: null,
       },
-      // { icon: Tags, label: "Types", path: "/admin/types", badge: null },
+
+      {
+        icon: BookCheck,
+        label: "Contacts",
+        path: "#", // le parent n’a pas de page dédiée
+        badge: contactsParentBadge,
+      },
+
       {
         icon: Settings,
         label: "Paramètres",
@@ -289,7 +349,7 @@ const BackofficeSidebar = ({
         badge: null,
       },
     ],
-    [unreadRegs, unreadDemandes]
+    [unreadRegs, unreadDemandes, contactsParentBadge]
   );
 
   const clientMenuItems: MenuItem[] = [
@@ -298,7 +358,7 @@ const BackofficeSidebar = ({
       icon: FileText,
       label: "Mes Commandes",
       path: "/client/commandes",
-      badge: "2",
+      badge: null,
     },
     {
       icon: CreditCard,
@@ -478,10 +538,7 @@ const BackofficeSidebar = ({
                           <FileText className="h-4 w-4 mr-2" />
                           <span>Liste demandes</span>
                           {item.badge && (
-                            <Badge
-                              variant="secondary"
-                              className="ml-auto bg-red-800 text-white text-[10px] px-1.5"
-                            >
+                            <Badge className="ml-auto bg-red-800 text-white text-[10px] px-1.5">
                               {item.badge}
                             </Badge>
                           )}
@@ -520,72 +577,123 @@ const BackofficeSidebar = ({
                 );
               }
 
-              // // Groupe "Types" (gestion des types d’entreprise)
-              // if (role === "admin" && item.label === "Types") {
-              //   const activeParent =
-              //     location.pathname.startsWith("/admin/types-entreprise") ||
-              //     location.pathname === "/admin/types";
-              //   return (
-              //     <div key={`types-${index}`} className="space-y-1">
-              //       <button
-              //         type="button"
-              //         onClick={() => {
-              //           if (isCollapsed) setIsCollapsed(false);
-              //           setOpenTypes((v) => !v);
-              //         }}
-              //         className={`w-full flex items-center space-x-4 px-4 py-3 rounded-xl transition-all duration-200 group ${
-              //           activeParent
-              //             ? themeColors.activeLink
-              //             : themeColors.normalLink
-              //         }`}
-              //       >
-              //         <div
-              //           className={`p-2 rounded-lg ${
-              //             activeParent
-              //               ? "bg-white shadow-sm"
-              //               : "group-hover:bg-red-100"
-              //           }`}
-              //         >
-              //           <Tags
-              //             className={`h-5 w-5 ${
-              //               activeParent ? "text-red-800" : ""
-              //             }`}
-              //           />
-              //         </div>
-              //         {!isCollapsed && (
-              //           <>
-              //             <span className="font-semibold text-sm">
-              //               Entreprise
-              //             </span>
-              //             <ChevronDown
-              //               className={`h-4 w-4 transition-transform ${
-              //                 openTypes ? "rotate-180" : ""
-              //               }`}
-              //             />
-              //           </>
-              //         )}
-              //       </button>
+              // Groupe "Contacts" (parent + enfants)
+              if (role === "admin" && item.label === "Contacts") {
+                const activeParent =
+                  location.pathname.startsWith("/admin/contacts") ||
+                  location.pathname.startsWith("/admin/newsletter") ||
+                  location.pathname.startsWith("/admin/conseils-gratuits");
 
-              //       {/* {!isCollapsed && openTypes && (
-              //         <div className="ml-12 mt-1 space-y-1">
-              //           <Link
-              //             to="/admin/types-entreprise"
-              //             className={`flex items-center px-3 py-2 rounded-lg text-sm transition-all duration-200 ${
-              //               location.pathname.startsWith(
-              //                 "/admin/types-entreprise"
-              //               )
-              //                 ? "bg-red-50 text-red-800"
-              //                 : "text-gray-700 hover:bg-red-50 hover:text-red-800"
-              //             }`}
-              //           >
-              //             <Building2 className="h-4 w-4 mr-2" />
-              //             <span>Types d’entreprise</span>
-              //           </Link>
-              //         </div>
-              //       )} */}
-              //     </div>
-              //   );
-              // }
+                return (
+                  <div key={`contacts-${index}`} className="space-y-1">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (isCollapsed) setIsCollapsed(false);
+                        setOpenContactsGroup((v) => !v);
+                      }}
+                      className={`w-full flex items-center space-x-4 px-4 py-3 rounded-xl transition-all duration-200 group ${
+                        activeParent
+                          ? themeColors.activeLink
+                          : themeColors.normalLink
+                      }`}
+                    >
+                      <div
+                        className={`p-2 rounded-lg ${
+                          activeParent
+                            ? "bg-white shadow-sm"
+                            : "group-hover:bg-red-100"
+                        }`}
+                      >
+                        <Tags
+                          className={`h-5 w-5 ${
+                            activeParent ? "text-red-800" : ""
+                          }`}
+                        />
+                      </div>
+                      {!isCollapsed && (
+                        <>
+                          <span className="font-semibold text-sm ml-3">
+                            Contacts
+                          </span>
+                          <div className="ml-auto flex items-center gap-2">
+                            <ChevronDown
+                              className={`h-4 w-4 transition-transform ${
+                                openContactsGroup ? "rotate-180" : ""
+                              }`}
+                            />
+                            {item.badge && (
+                              <Badge
+                                variant="secondary"
+                                className="bg-red-800 text-white text-xs px-2"
+                              >
+                                {item.badge}
+                              </Badge>
+                            )}
+                          </div>
+                        </>
+                      )}
+                    </button>
+
+                    {!isCollapsed && openContactsGroup && (
+                      <div className="ml-12 mt-1 space-y-1">
+                        {/* Enfant: Contacts */}
+                        <NavLink
+                          to="/admin/contacts"
+                          className={({ isActive }) =>
+                            `flex items-center px-3 py-2 rounded-lg text-sm transition-all duration-200 ${
+                              isActive
+                                ? "bg-red-50 text-red-800"
+                                : "text-gray-700 hover:bg-red-50 hover:text-red-800"
+                            }`
+                          }
+                        >
+                          <BookCheck className="h-4 w-4 mr-2" />
+                          <span>Contacts</span>
+                          {unreadContacts !== null && unreadContacts > 0 && (
+                            <Badge className="ml-auto bg-red-800 text-white text-[10px] px-1.5">
+                              {unreadContacts}
+                            </Badge>
+                          )}
+                        </NavLink>
+
+                        <NavLink
+                          to="/admin/conseils-gratuits"
+                          className={({ isActive }) =>
+                            `flex items-center px-3 py-2 rounded-lg text-sm transition-all duration-200 ${
+                              isActive
+                                ? "bg-red-50 text-red-800"
+                                : "text-gray-700 hover:bg-red-50 hover:text-red-800"
+                            }`
+                          }
+                        >
+                          <MessageSquare className="h-4 w-4 mr-2" />
+                          <span>Conseil Gratuit</span>
+                          {unreadConseils !== null && unreadConseils > 0 && (
+                            <Badge className="ml-auto bg-red-800 text-white text-[10px] px-1.5">
+                              {unreadConseils}
+                            </Badge>
+                          )}
+                        </NavLink>
+
+                        <NavLink
+                          to="/admin/newsletter"
+                          className={({ isActive }) =>
+                            `flex items-center px-3 py-2 rounded-lg text-sm transition-all duration-200 ${
+                              isActive
+                                ? "bg-red-50 text-red-800"
+                                : "text-gray-700 hover:bg-red-50 hover:text-red-800"
+                            }`
+                          }
+                        >
+                          <Mail className="h-4 w-4 mr-2" />
+                          <span>Newsletter</span>
+                        </NavLink>
+                      </div>
+                    )}
+                  </div>
+                );
+              }
 
               // Liens standards
               const active = isActiveLink(item.path);

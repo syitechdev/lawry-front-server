@@ -7,13 +7,18 @@ use App\Models\User;
 use App\Policies\UserPolicy;
 use Illuminate\Auth\Notifications\ResetPassword;
 use Illuminate\Notifications\Messages\MailMessage;
-
+use App\Models\Contact;
+use App\Policies\ContactPolicy;
+use App\Policies\NewsletterSubscriptionPolicy;
 
 class AuthServiceProvider extends ServiceProvider
 {
     protected $policies = [
         User::class => UserPolicy::class,
+        Contact::class => ContactPolicy::class,
+        NewsletterSubscriptionPolicy::class => NewsletterSubscriptionPolicy::class,
     ];
+
 
     public function boot(): void
     {
@@ -40,5 +45,7 @@ class AuthServiceProvider extends ServiceProvider
                     'expires'  => $expires,
                 ]);
         });
+
+        $this->registerPolicies();
     }
 }

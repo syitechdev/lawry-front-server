@@ -305,16 +305,10 @@ const LegalConsultationForm: React.FC<Props> = ({ preset }) => {
   };
   const removeFile = (i: number) =>
     setUploadedFiles((prev) => prev.filter((_, idx) => idx !== i));
-
   const onSubmit = async (data: FormValues) => {
     try {
       setSubmitting(true);
 
-      // Paiement immédiat si une offre fixe avec un montant > 0 (ton modèle "preset")
-      const shouldPayNow =
-        typeof preset?.price === "number" && Number(preset.price) > 0;
-
-      // --- Construire le FormData pour /demandes
       const fd = new window.FormData();
       fd.append("type", "se-faire-conseiller");
       if (preset?.key) fd.append("variant_key", preset.key);
@@ -335,6 +329,10 @@ const LegalConsultationForm: React.FC<Props> = ({ preset }) => {
       // Objet
       fd.append("data[legalDomain]", data.legalDomain);
       fd.append("data[counselType]", data.counselType);
+      if (data.otherLegalDomain)
+        fd.append("data[otherLegalDomain]", data.otherLegalDomain);
+      if (data.otherCounselType)
+        fd.append("data[otherCounselType]", data.otherCounselType);
 
       // Description
       fd.append("data[factDescription]", data.factDescription);
@@ -350,64 +348,87 @@ const LegalConsultationForm: React.FC<Props> = ({ preset }) => {
       if (data.otherDocuments)
         fd.append("data[otherDocuments]", data.otherDocuments);
 
-      // Snapshot de l’offre choisie (optionnel mais utile)
+      // Consentements
+      fd.append("data[dataConsent]", String(!!data.dataConsent));
+      fd.append("data[digitalConsent]", String(!!data.digitalConsent));
+
+      // --- FORMULE / PRIX : écrire partout où le back peut regarder ---
       if (preset?.label)
         fd.append("data[selected_preset][label]", preset.label);
-      if (typeof preset?.price === "number")
-        fd.append("data[selected_preset][price]", String(preset.price ?? 0));
-      if (preset?.currency)
-        fd.append("data[selected_preset][currency]", preset.currency);
+      const currency = preset?.currency || "XOF";
+      const numericAmount = Number(preset?.price ?? 0);
+      const amountInt = Number.isFinite(numericAmount)
+        ? Math.round(numericAmount)
+        : 0;
 
-      // Fichiers
-      if (uploadedFiles.length) {
-        uploadedFiles.forEach((file) =>
-          fd.append("files[attachments][]", file)
-        );
+      // Toujours poser currency au top-level si tu l’utilises côté back
+      fd.append("currency", currency);
+
+      if (amountInt > 0) {
+        // "price" normalisé
+        fd.append("data[price][mode]", "fixed");
+        fd.append("data[price][amount]", String(amountInt));
+        fd.append("data[price][currency]", currency);
+
+        // Snapshot lisible en BO
+        fd.append("data[selected_preset][price]", String(amountInt));
+        fd.append("data[selected_preset][currency]", currency);
+
+        // CLÉS REDONDANTES pour satisfaire payableAmountXof (quel que soit son implémentation)
+        fd.append("data[amount]", String(amountInt));
+        fd.append("data[price_amount]", String(amountInt));
+        fd.append("data[total_amount]", String(amountInt));
+        fd.append("data[montant]", String(amountInt)); // FR
+        fd.append("data[payment][amount]", String(amountInt));
+        fd.append("data[payment][currency]", currency);
+        fd.append("data[paiement][amount]", String(amountInt)); // FR
+        fd.append("data[paiement][currency]", currency);
+      } else {
+        // Sur devis
+        fd.append("data[selected_preset][price]", "");
+        fd.append("data[selected_preset][currency]", currency);
       }
 
-      // --- Création de la demande
+      // Fichiers
+      uploadedFiles.forEach((file) => fd.append("files[attachments][]", file));
+
+      // Création
       const { data: res } = await http.post("/demandes", fd, {
         headers: { "Content-Type": "multipart/form-data" },
       });
 
-      // Récup id + ref (tu as ajouté id côté Resource ✔️)
-      const createdId: number | null = res?.demande?.id ?? null;
-      const ref: string | null = res?.demande?.ref ?? null;
+      const createdId: number | null = res?.demande?.id ?? res?.id ?? null;
+      const ref: string | null = res?.demande?.ref ?? res?.ref ?? null;
 
-      // MAJ user localStorage si présent
+      // MAJ user local
       const updated = res?.updated_user;
       if (updated) {
         try {
           const prev = localStorage.getItem("current_user");
           const prevObj = prev ? JSON.parse(prev) : {};
-          const merged = { ...prevObj, ...updated };
-          localStorage.setItem("current_user", JSON.stringify(merged));
+          localStorage.setItem(
+            "current_user",
+            JSON.stringify({ ...prevObj, ...updated })
+          );
         } catch {}
       }
 
-      // --- Paiement immédiat si nécessaire
-      if (shouldPayNow && (createdId || ref)) {
-        // Construire le client à partir du formulaire
-        const customer = {
-          email: data.email,
-          firstName: data.firstName || "Client",
-          lastName: data.lastName || "Inconnu",
-          phone: data.phone,
-        };
-
+      // Paiement immédiat seulement si prix > 0 (le back lira le montant depuis la demande)
+      if (amountInt > 0 && createdId) {
         try {
-          // NB: l’endpoint est le même que l’autre page : /pay/demande/{id}
-          // Si tu veux supporter la ref (au cas où), adapte initPayment pour { ref } comme montré plus haut.
-          const pay = await initPayment({
-            type: "demande",
-            id: createdId ?? undefined,
-            // ref: createdId ? undefined : ref, // décommente si tu as une route /pay/demande/ref/{ref}
-            customer,
-          });
+          const payInit = await http.post(
+            `/pay/demande/${encodeURIComponent(createdId)}`,
+            {
+              // on peut renvoyer le client (facultatif)
+              customerEmail: data.email,
+              customerFirstName: data.firstName || "Client",
+              customerLastName: data.lastName || "Inconnu",
+              customerPhoneNumber: data.phone,
+            },
+            { headers: { Accept: "application/json" } }
+          );
+          const pay = payInit.data;
 
-          const action = pay?.action;
-          const fields = pay?.fields || {};
-          const method = (pay?.method as "POST" | "GET") || "POST";
           const redirectUrl =
             pay?.redirect_url ||
             pay?.redirectUrl ||
@@ -416,40 +437,25 @@ const LegalConsultationForm: React.FC<Props> = ({ preset }) => {
             pay?.payment_url;
 
           if (redirectUrl && typeof redirectUrl === "string") {
-            // Redirection GET directe
             window.location.assign(redirectUrl);
-            return; // on ne montre pas le modal
+            return;
           }
+          const action = pay?.action;
+          const fields = pay?.fields || {};
+          const method = (pay?.method as "POST" | "GET") || "POST";
           if (action && typeof action === "string") {
-            // Form auto-post (POST ou GET)
             autoPost(action, fields, method);
-            return; // on ne montre pas le modal
+            return;
           }
-
-          // Fallback si pas de quoi rediriger
-          toast({
-            variant: "destructive",
-            title: "Paiement indisponible",
-            description:
-              "Impossible de lancer la page de paiement. Vous pourrez payer plus tard depuis vos commandes.",
-          });
-        } catch (err: any) {
-          toast({
-            variant: "destructive",
-            title: "Paiement indisponible",
-            description:
-              err?.message ||
-              "Impossible de démarrer le paiement. Vous pourrez payer plus tard depuis vos commandes.",
-          });
+        } catch {
+          // Si init paiement échoue, on montre le modal standard (paiement plus tard)
         }
       }
 
-      // --- Cas standard : afficher le modal
-      setCreatedRef(ref);
+      // Succès (sans redirection paiement)
       setSuccessRef(ref);
       setSuccessOpen(true);
     } catch (e: any) {
-      // Gestion d’erreurs standard
       const msg =
         e?.response?.data?.message ||
         e?.message ||
