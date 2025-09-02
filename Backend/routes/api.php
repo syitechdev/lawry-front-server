@@ -29,6 +29,7 @@ use App\Http\Controllers\Admin\NewsletterAdminController;
 use App\Http\Controllers\ConseilsGratuitsController;
 use App\Http\Controllers\TrackDemandeController;
 use App\Http\Controllers\Admin\ConseilsGratuitsController as AdminCG;
+use App\Http\Controllers\PlanController;
 
 
 
@@ -53,6 +54,9 @@ Route::prefix('v1')->group(function () {
     // Conseil Gratuit Form
     Route::post('/conseils-gratuits', [ConseilsGratuitsController::class, 'store']);
 
+    //service
+    Route::post('/subscriptions', [\App\Http\Controllers\SubscriptionController::class, 'store']);
+    Route::get('/public/plans', [PlanController::class, 'publicIndex']);
 
     //Newsletter
     Route::post('/newsletter/subscribe', [NewsletterPublicController::class, 'subscribe']);
@@ -97,6 +101,7 @@ Route::prefix('v1')->group(function () {
             Route::get('client/dashboard', [ClienAdminController::class, 'index']);
             Route::get('client/orders', [ClienAdminController::class, 'orders']);
             Route::get('/client/orders/{ref}', [ClienAdminController::class, 'show']);
+            Route::get('/client/subscriptions/my', [PlanController::class, 'mySubscriptions']);
         });
 
         // Admin only

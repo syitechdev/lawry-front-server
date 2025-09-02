@@ -1,115 +1,50 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Check, Crown, Star } from "lucide-react";
 import BackofficeSidebar from "@/components/BackofficeSidebar";
-import { toast } from "sonner";
+import { http } from "@/lib/http";
+import { Check, Clock, XCircle } from "lucide-react";
+
+interface Subscription {
+  id: number;
+  period: "monthly" | "yearly";
+  status: string;
+  current_cycle_start: string | null;
+  current_cycle_end: string | null;
+  plan: {
+    id: number;
+    name: string;
+    description?: string;
+    monthly_price_cfa: number;
+    yearly_price_cfa: number;
+    trial_days?: number | null;
+    is_trial?: boolean;
+    features: string[];
+    gradient?: string;
+  };
+}
 
 const ClientPlans = () => {
-  const [selectedPlan, setSelectedPlan] = useState<string | null>(null);
+  const [subs, setSubs] = useState<Subscription[]>([]);
+  const [loading, setLoading] = useState(true);
 
-  const plans = [
-    {
-      id: "plan1",
-      nom: "Basique",
-      prix: 15000,
-      periode: "mois",
-      description: "Idéal pour les particuliers et petites entreprises",
-      fonctionnalites: [
-        "Consultation juridique illimitée",
-        "Création d'un type de société",
-        "Support par email",
-        "Suivi de dossier en ligne",
-      ],
-      populaire: false,
-      couleur: "blue",
-      avantages: [
-        "Accès 24/7 à la plateforme",
-        "Réponse sous 48h",
-        "Documents de base inclus",
-      ],
-    },
-    {
-      id: "plan2",
-      nom: "Professionnel",
-      prix: 35000,
-      periode: "mois",
-      description: "Pour les entreprises en croissance",
-      fonctionnalites: [
-        "Tout du plan Basique",
-        "Création illimitée de sociétés",
-        "Rédaction de contrats personnalisés",
-        "Support téléphonique prioritaire",
-        "Formation juridique incluse",
-      ],
-      populaire: true,
-      couleur: "red",
-      avantages: [
-        "Juriste dédié",
-        "Réponse sous 24h",
-        "Formation mensuelle gratuite",
-        "Remise 20% sur les services",
-      ],
-    },
-    {
-      id: "plan3",
-      nom: "Entreprise",
-      prix: 75000,
-      periode: "mois",
-      description: "Solution complète pour grandes entreprises",
-      fonctionnalites: [
-        "Tout du plan Professionnel",
-        "Juriste dédié",
-        "Audit juridique annuel",
-        "Formation sur site",
-        "Support 24/7",
-      ],
-      populaire: false,
-      couleur: "purple",
-      avantages: [
-        "Équipe juridique dédiée",
-        "Réponse immédiate",
-        "Formations illimitées",
-        "Audit annuel gratuit",
-        "Remise 30% sur tous les services",
-      ],
-    },
-  ];
+  useEffect(() => {
+    (async () => {
+      try {
+        const { data } = await http.get("/client/subscriptions/my");
+        setSubs(data?.items || []);
+      } finally {
+        setLoading(false);
+      }
+    })();
+  }, []);
 
-  const handleSelectPlan = (planId: string) => {
-    setSelectedPlan(planId);
-    const plan = plans.find((p) => p.id === planId);
-    toast.success(
-      `Plan ${plan?.nom} sélectionné - Redirection vers le paiement...`
-    );
-    // Ici on redirigerait vers la page de paiement
-  };
-
-  const getPlanBadgeColor = (couleur: string) => {
-    const colors = {
-      blue: "bg-blue-100 text-blue-800 border-blue-200",
-      red: "bg-red-100 text-red-800 border-red-200",
-      purple: "bg-purple-100 text-purple-800 border-purple-200",
-      green: "bg-green-100 text-green-800 border-green-200",
-    };
-    return (
-      colors[couleur as keyof typeof colors] ||
-      "bg-gray-100 text-gray-800 border-gray-200"
-    );
-  };
-
-  const getPlanGradient = (couleur: string) => {
-    const gradients = {
-      blue: "from-blue-50 to-blue-100",
-      red: "from-red-50 to-red-100",
-      purple: "from-purple-50 to-purple-100",
-      green: "from-green-50 to-green-100",
-    };
-    return (
-      gradients[couleur as keyof typeof gradients] || "from-gray-50 to-gray-100"
-    );
-  };
+  const activeCount = subs.filter((s) => s.status === "active").length;
+  const expiredCount = subs.filter((s) => s.status === "expired").length;
+  const pendingCount = subs.filter(
+    (s) => s.status === "pending_payment"
+  ).length;
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-gray-50 via-red-50/30 to-gray-50">
@@ -120,118 +55,134 @@ const ClientPlans = () => {
       />
 
       <div className="ml-80 px-8 py-8">
+        {/* header */}
         <div className="mb-8">
-          <div className="bg-gradient-to-r from-blue-900 to-blue-800 text-white rounded-2xl p-6 shadow-xl">
-            <div className="text-center">
-              <h1 className="text-3xl font-bold mb-2">Choisissez Votre Plan</h1>
-              <p className="text-blue-100">
-                Sélectionnez l'offre qui correspond le mieux à vos besoins
-              </p>
-            </div>
+          <div className="bg-gradient-to-r from-blue-900 to-blue-800 text-white rounded-2xl p-6 shadow-xl relative">
+            <h1 className="text-3xl font-bold mb-2">Mes Abonnements</h1>
+            <p className="text-blue-100">
+              Vos plans actifs, expirés ou en attente
+            </p>
+            <Button
+              onClick={() => (window.location.href = "/services")}
+              className="absolute top-6 right-6 bg-white text-blue-900 hover:bg-blue-100"
+            >
+              Choisir un autre plan
+            </Button>
           </div>
         </div>
 
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 mb-8">
-          {plans.map((plan) => (
-            <Card
-              key={plan.id}
-              className={`relative transition-all duration-300 hover:shadow-lg ${
-                plan.populaire
-                  ? "ring-2 ring-red-500 shadow-lg scale-105"
-                  : "hover:scale-102"
-              } ${selectedPlan === plan.id ? "ring-2 ring-green-500" : ""}`}
-            >
-              {plan.populaire && (
-                <div className="absolute -top-4 left-1/2 transform -translate-x-1/2 z-10">
-                  <Badge className="bg-red-500 text-white px-4 py-2 text-sm font-semibold shadow-lg">
-                    <Crown className="h-4 w-4 mr-1" />
-                    Le Plus Populaire
-                  </Badge>
-                </div>
-              )}
-
-              <div
-                className={`bg-gradient-to-br ${getPlanGradient(
-                  plan.couleur
-                )} p-6 rounded-t-lg`}
-              >
-                <div className="text-center">
-                  <Badge
-                    className={`${getPlanBadgeColor(
-                      plan.couleur
-                    )} mb-4 px-3 py-1`}
-                  >
-                    {plan.nom}
-                  </Badge>
-
-                  <div className="text-4xl font-bold text-gray-900 mb-2">
-                    {plan.prix.toLocaleString()}
-                    <span className="text-sm font-normal text-gray-600 ml-1">
-                      FCFA
-                    </span>
-                  </div>
-                  <div className="text-gray-600">par {plan.periode}</div>
-
-                  <p className="text-gray-700 text-sm mt-3 mb-4">
-                    {plan.description}
-                  </p>
-                </div>
-              </div>
-
-              <CardContent className="p-6">
-                <div className="mb-6">
-                  <h4 className="font-semibold text-gray-900 mb-3 flex items-center">
-                    <Star className="h-4 w-4 mr-2 text-yellow-500" />
-                    Fonctionnalités incluses
-                  </h4>
-                  <ul className="space-y-2">
-                    {plan.fonctionnalites.map((feature, index) => (
-                      <li
-                        key={index}
-                        className="flex items-start space-x-3 text-sm"
-                      >
-                        <Check className="h-4 w-4 text-green-500 mt-0.5 flex-shrink-0" />
-                        <span className="text-gray-700">{feature}</span>
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-
-                <div className="mb-6">
-                  <h4 className="font-semibold text-gray-900 mb-3">
-                    Avantages exclusifs
-                  </h4>
-                  <ul className="space-y-2">
-                    {plan.avantages.map((avantage, index) => (
-                      <li
-                        key={index}
-                        className="flex items-start space-x-3 text-sm"
-                      >
-                        <div className="w-2 h-2 bg-red-500 rounded-full mt-2 flex-shrink-0"></div>
-                        <span className="text-gray-600">{avantage}</span>
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-
-                <Button
-                  onClick={() => handleSelectPlan(plan.id)}
-                  className={`w-full ${
-                    plan.populaire
-                      ? "bg-red-600 hover:bg-red-700 text-white"
-                      : "bg-gray-900 hover:bg-gray-800 text-white"
-                  }`}
-                  size="lg"
-                >
-                  {selectedPlan === plan.id
-                    ? "Plan Sélectionné"
-                    : "Choisir ce Plan"}
-                </Button>
-              </CardContent>
-            </Card>
-          ))}
+        {/* stats */}
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-10">
+          <Card className="border-t-4 border-transparent bg-white shadow-sm">
+            <div className="h-1 w-full bg-gradient-to-r from-green-400 to-green-600 rounded-t-lg" />
+            <CardHeader>
+              <CardTitle>Actifs</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <p className="text-3xl font-bold">{activeCount}</p>
+            </CardContent>
+          </Card>
+          <Card className="border-t-4 border-transparent bg-white shadow-sm">
+            <div className="h-1 w-full bg-gradient-to-r from-yellow-400 to-yellow-600 rounded-t-lg" />
+            <CardHeader>
+              <CardTitle>En attente</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <p className="text-3xl font-bold">{pendingCount}</p>
+            </CardContent>
+          </Card>
+          <Card className="border-t-4 border-transparent bg-white shadow-sm">
+            <div className="h-1 w-full bg-gradient-to-r from-red-400 to-red-600 rounded-t-lg" />
+            <CardHeader>
+              <CardTitle>Expirés</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <p className="text-3xl font-bold">{expiredCount}</p>
+            </CardContent>
+          </Card>
         </div>
 
+        {/* abonnements */}
+        {loading ? (
+          <p>Chargement...</p>
+        ) : subs.length === 0 ? (
+          <p>Aucun abonnement trouvé.</p>
+        ) : (
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 mb-8">
+            {subs.map((sub) => {
+              const plan = sub.plan;
+              const start = sub.current_cycle_start
+                ? new Date(sub.current_cycle_start).toLocaleDateString()
+                : null;
+              const end = sub.current_cycle_end
+                ? new Date(sub.current_cycle_end).toLocaleDateString()
+                : null;
+
+              return (
+                <Card key={sub.id} className="relative shadow-lg">
+                  <div
+                    className={`bg-gradient-to-r ${
+                      plan.gradient || "from-gray-100 to-gray-200"
+                    } p-6 rounded-t-lg`}
+                  >
+                    <div className="text-center">
+                      <h2 className="text-2xl font-bold text-white">
+                        {plan.name}
+                      </h2>
+                      {plan.is_trial ? (
+                        <p className="text-white/80">
+                          {plan.trial_days ?? 14} jours
+                        </p>
+                      ) : (
+                        <p className="text-white/80">
+                          {sub.period === "monthly"
+                            ? `${plan.monthly_price_cfa.toLocaleString()} FCFA / mois`
+                            : `${plan.yearly_price_cfa.toLocaleString()} FCFA / an`}
+                        </p>
+                      )}
+                    </div>
+                  </div>
+
+                  <CardContent className="p-6">
+                    {start && end && (
+                      <p className="text-gray-600 mb-4">
+                        {start} → {end}
+                      </p>
+                    )}
+
+                    <ul className="space-y-2 mb-6">
+                      {plan.features.map((f, i) => (
+                        <li
+                          key={i}
+                          className="flex items-center gap-2 text-sm text-gray-700"
+                        >
+                          <Check className="h-4 w-4 text-green-500" />
+                          {f}
+                        </li>
+                      ))}
+                    </ul>
+
+                    {sub.status === "active" && (
+                      <Button className="w-full bg-green-600 hover:bg-green-700">
+                        Actif
+                      </Button>
+                    )}
+                    {sub.status === "pending_payment" && (
+                      <Button className="w-full bg-yellow-500 hover:bg-yellow-600">
+                        Valider mon plan
+                      </Button>
+                    )}
+                    {sub.status === "expired" && (
+                      <Button className="w-full bg-red-600 hover:bg-red-700">
+                        Renouveler
+                      </Button>
+                    )}
+                  </CardContent>
+                </Card>
+              );
+            })}
+          </div>
+        )}
         {/* FAQ Section */}
         <Card>
           <CardHeader>

@@ -1,20 +1,29 @@
 import { useEffect, useMemo, useState } from "react";
 import { Toaster, toast } from "sonner";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
-import { Label } from "@/components/ui/label";
 import { Plus, Edit, Trash2, Crown, Check } from "lucide-react";
 import BackofficeSidebar from "@/components/BackofficeSidebar";
-
 import { plans as plansApi } from "@/services/plans";
 import type { Plan } from "@/services/plans";
 import PlanEditForm from "@/components/forms/PlanEditForm";
 import { http } from "@/lib/http";
 
-/* ---------- Helpers API Platform ---------- */
+type TarifUniqueRow = {
+  id: number | string;
+  nom: string;
+  prix: number;
+  description: string;
+  actif: boolean;
+  created_at?: string;
+  updated_at?: string;
+};
+
+const TARIFS_BASE = "/tarif_uniques";
+
 function extractMember(json: any): any[] {
   if (!json) return [];
   if (Array.isArray(json.member)) return json.member;
@@ -22,6 +31,7 @@ function extractMember(json: any): any[] {
   if (Array.isArray(json.data)) return json.data;
   return Array.isArray(json) ? json : [];
 }
+
 function apiError(err: any, fallback: string) {
   const d = err?.response?.data;
   return (
@@ -33,21 +43,49 @@ function apiError(err: any, fallback: string) {
   );
 }
 
-/* ---------- Types locaux Tarifs ---------- */
-type TarifUniqueRow = {
-  id: number | string; // string => brouillon "new-...", number => item persistant
-  nom: string;
-  prix: number;
-  description: string;
-  actif: boolean;
-  created_at?: string;
-  updated_at?: string;
-};
+function normalizePeriod(p?: string | null): "Mois" | "Année" | null {
+  if (!p) return null;
+  const s = p.toLowerCase();
+  if (
+    [
+      "mois",
+      "mensuel",
+      "mensuelle",
+      "month",
+      "m",
+      "mensual",
+      "monthly",
+    ].includes(s)
+  )
+    return "Mois";
+  if (
+    ["annee", "année", "annuel", "annuelle", "year", "a", "yearly"].includes(s)
+  )
+    return "Année";
+  return null;
+}
 
-const TARIFS_BASE = "/tarif_uniques"; // ✅ correspond à route:list
+function getPlanPrices(plan: any): {
+  monthly: number;
+  yearly: number;
+  period?: "Mois" | "Année" | null;
+} {
+  let monthly =
+    Number(plan.monthlyPriceCfa ?? plan.monthly_price_cfa ?? 0) || 0;
+  let yearly = Number(plan.yearlyPriceCfa ?? plan.yearly_price_cfa ?? 0) || 0;
+  if (monthly === 0 && yearly === 0) {
+    const legacyPrice = Number(plan.priceCfa ?? plan.price_cfa ?? 0) || 0;
+    const legacyPeriod = normalizePeriod(plan.period ?? null);
+    if (legacyPrice > 0 && legacyPeriod) {
+      if (legacyPeriod === "Mois") monthly = legacyPrice;
+      if (legacyPeriod === "Année") yearly = legacyPrice;
+      return { monthly, yearly, period: legacyPeriod };
+    }
+  }
+  return { monthly, yearly, period: normalizePeriod(plan.period ?? null) };
+}
 
 const AdminPlans = () => {
-  /* ---------------- Plans (inchangé) ---------------- */
   const [items, setItems] = useState<Plan[]>([]);
   const [loading, setLoading] = useState(true);
   const [editingPlan, setEditingPlan] = useState<Plan | null>(null);
@@ -59,7 +97,6 @@ const AdminPlans = () => {
       const res = await plansApi.list();
       setItems(res.items);
     } catch (e: any) {
-      console.error(e);
       toast.error(e?.message || "Impossible de charger les plans");
     } finally {
       setLoading(false);
@@ -94,7 +131,6 @@ const AdminPlans = () => {
       toast.success("Plan supprimé");
       await load();
     } catch (e: any) {
-      console.error(e);
       toast.error(e?.message || "Suppression impossible");
     }
   };
@@ -111,7 +147,6 @@ const AdminPlans = () => {
       setItems((prev) =>
         prev.map((x) => (x.id === p.id ? { ...x, isActive: !next } : x))
       );
-      console.error(e);
       toast.error(e?.message || "Échec de la mise à jour");
     }
   };
@@ -128,12 +163,10 @@ const AdminPlans = () => {
       setItems((prev) =>
         prev.map((x) => (x.id === p.id ? { ...x, isPopular: !next } : x))
       );
-      console.error(e);
       toast.error(e?.message || "Échec de la mise à jour");
     }
   };
 
-  /* --------------- Tarifs Uniques (branché API) --------------- */
   const [tarifsUniques, setTarifsUniques] = useState<TarifUniqueRow[]>([]);
   const [loadingTarifs, setLoadingTarifs] = useState(true);
   const [editingTarif, setEditingTarif] = useState<string | null>(null);
@@ -155,7 +188,6 @@ const AdminPlans = () => {
       })) as TarifUniqueRow[];
       setTarifsUniques(rows);
     } catch (e: any) {
-      console.error(e);
       toast.error(apiError(e, "Impossible de charger les tarifs"));
     } finally {
       setLoadingTarifs(false);
@@ -165,7 +197,6 @@ const AdminPlans = () => {
     loadTarifs();
   }, []);
 
-  // ----- mêmes handlers que ta vue, mais reliés API -----
   const updateTarif = (
     id: string,
     field: "nom" | "prix" | "description",
@@ -180,19 +211,14 @@ const AdminPlans = () => {
     const t = tarifsUniques.find((x) => String(x.id) === id);
     if (!t) return;
     const next = !t.actif;
-
-    // optimistic
     setTarifsUniques((prev) =>
       prev.map((x) => (String(x.id) === id ? { ...x, actif: next } : x))
     );
-
     try {
-      // Si brouillon local, pas d’API
       if (typeof t.id === "string") {
         toast.success("Statut du tarif modifié (brouillon)");
         return;
       }
-      // Toggle back-end
       await http.patch(
         `/admin/tarifs/${t.id}/active`,
         { actif: next },
@@ -200,11 +226,9 @@ const AdminPlans = () => {
       );
       toast.success(next ? "Tarif activé" : "Tarif désactivé");
     } catch (e: any) {
-      // revert
       setTarifsUniques((prev) =>
         prev.map((x) => (String(x.id) === id ? { ...x, actif: !next } : x))
       );
-      console.error(e);
       toast.error(apiError(e, "Échec de la mise à jour"));
     }
   };
@@ -213,7 +237,6 @@ const AdminPlans = () => {
     const t = tarifsUniques.find((x) => String(x.id) === id);
     if (!t) return;
     if (!confirm("Supprimer ce tarif ?")) return;
-
     try {
       if (typeof t.id === "number") {
         await http.delete(`${TARIFS_BASE}/${t.id}`);
@@ -221,7 +244,6 @@ const AdminPlans = () => {
       setTarifsUniques((prev) => prev.filter((x) => String(x.id) !== id));
       toast.success("Tarif supprimé");
     } catch (e: any) {
-      console.error(e);
       toast.error(apiError(e, "Suppression impossible"));
     }
   };
@@ -248,7 +270,6 @@ const AdminPlans = () => {
       toast.error("Veuillez remplir tous les champs");
       return;
     }
-
     try {
       const payload = {
         nom: t.nom,
@@ -256,15 +277,12 @@ const AdminPlans = () => {
         description: t.description || null,
         actif: !!t.actif,
       };
-
       if (typeof t.id === "string") {
-        // CREATE
         await http.post(TARIFS_BASE, payload, {
           headers: { "Content-Type": "application/ld+json" },
         });
         toast.success("Tarif créé");
       } else {
-        // UPDATE
         await http.patch(`${TARIFS_BASE}/${t.id}`, payload, {
           headers: { "Content-Type": "application/merge-patch+json" },
         });
@@ -273,12 +291,10 @@ const AdminPlans = () => {
       setEditingTarif(null);
       await loadTarifs();
     } catch (e: any) {
-      console.error(e);
       toast.error(apiError(e, "Erreur lors de la sauvegarde"));
     }
   };
 
-  /* ---------------- Stats (inchangé) ---------------- */
   const stats = useMemo(() => {
     const total = items.length;
     const actifs = items.filter((p) => p.isActive).length;
@@ -287,12 +303,9 @@ const AdminPlans = () => {
     return { total, actifs, populaires, nbTarifsActifs };
   }, [items, tarifsUniques]);
 
-  /* ---------------- Render (même design) ---------------- */
   return (
     <div className="min-h-screen bg-gradient-to-br from-gray-50 via-red-50/30 to-gray-50">
-      {/* Toaster pour SONNER (toasts) */}
       <Toaster position="top-right" richColors />
-
       <BackofficeSidebar
         userRole="admin"
         userName="Admin Lawry"
@@ -300,7 +313,6 @@ const AdminPlans = () => {
       />
 
       <div className="ml-80 px-8 py-8">
-        {/* Header */}
         <div className="mb-8">
           <div className="bg-gradient-to-r from-red-900 to-red-800 text-white rounded-2xl p-6 shadow-xl">
             <div className="flex justify-between items-center">
@@ -319,19 +331,50 @@ const AdminPlans = () => {
                 }}
                 className="bg-white text-red-800 hover:bg-red-50"
               >
-                <Plus className="h-4 w-4 mr-2" />
-                Nouveau Plan
+                <Plus className="h-4 w-4 mr-2" /> Nouveau Plan
               </Button>
             </div>
           </div>
         </div>
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mt-6">
+          <Card>
+            <CardContent className="p-4">
+              <div className="text-2xl font-bold text-blue-600">
+                {stats.total}
+              </div>
+              <p className="text-sm text-gray-600">Total abonnements</p>
+            </CardContent>
+          </Card>
+          <Card>
+            <CardContent className="p-4">
+              <div className="text-2xl font-bold text-green-600">
+                {stats.active}
+              </div>
+              <p className="text-sm text-gray-600">Actifs</p>
+            </CardContent>
+          </Card>
+          <Card>
+            <CardContent className="p-4">
+              <div className="text-2xl font-bold text-red-600">
+                {stats.expired}
+              </div>
+              <p className="text-sm text-gray-600">Expirés</p>
+            </CardContent>
+          </Card>
+          <Card>
+            <CardContent className="p-4">
+              <div className="text-2xl font-bold text-yellow-600">
+                {stats.pending}
+              </div>
+              <p className="text-sm text-gray-600">En attente</p>
+            </CardContent>
+          </Card>
+        </div>
 
-        {/* Plans d'abonnement */}
         <div className="mb-12">
           <h2 className="text-2xl font-bold text-gray-900 mb-6">
             Plans d&apos;Abonnement
           </h2>
-
           {loading ? (
             <div className="text-gray-500">Chargement…</div>
           ) : items.length === 0 ? (
@@ -348,12 +391,10 @@ const AdminPlans = () => {
                   {plan.isPopular && (
                     <div className="absolute -top-3 left-1/2 transform -translate-x-1/2">
                       <Badge className="bg-red-500 text-white px-3 py-1">
-                        <Crown className="h-3 w-3 mr-1" />
-                        Populaire
+                        <Crown className="h-3 w-3 mr-1" /> Populaire
                       </Badge>
                     </div>
                   )}
-
                   <CardHeader className="text-center pb-4">
                     <div className="flex justify-between items-start mb-2">
                       <Badge className={getPlanBadgeColor(plan.color)}>
@@ -370,52 +411,75 @@ const AdminPlans = () => {
                         </span>
                       </div>
                     </div>
-
-                    {/* <div className="text-3xl font-bold text-gray-900">
-                      {Number(plan.priceCfa ?? 0).toLocaleString()} FCFA
-                      <span className="text-lg font-normal text-gray-500">
-                        /{plan.period}
-                      </span>
-                    </div> */}
-                    <div className="text-center space-y-1 mt-1">
-                      {plan.monthlyPriceCfa > 0 || plan.yearlyPriceCfa > 0 ? (
-                        <>
-                          {plan.monthlyPriceCfa > 0 && (
+                    {(() => {
+                      const { monthly, yearly, period } = getPlanPrices(
+                        plan as any
+                      );
+                      const isTrial =
+                        (plan as any).isTrial ??
+                        (plan as any).is_trial ??
+                        false;
+                      const trialDays =
+                        (plan as any).trialDays ??
+                        (plan as any).trial_days ??
+                        null;
+                      if (isTrial) {
+                        return (
+                          <div className="mt-1 text-center">
+                            <div className="inline-flex items-center rounded-full bg-green-50 text-green-700 px-3 py-1 text-sm font-medium">
+                              Essai gratuit
+                              {trialDays
+                                ? ` — ${trialDays} jour${
+                                    trialDays > 1 ? "s" : ""
+                                  }`
+                                : ""}
+                            </div>
+                            <div className="text-xs text-gray-500 mt-1">
+                              Tarifs désactivés pendant l’essai
+                            </div>
+                          </div>
+                        );
+                      }
+                      return (
+                        <div className="text-center space-y-1 mt-1">
+                          {monthly > 0 || yearly > 0 ? (
+                            <>
+                              {monthly > 0 && (
+                                <div className="text-2xl font-bold text-gray-900">
+                                  {monthly.toLocaleString()} FCFA
+                                  <span className="text-sm font-normal text-gray-500">
+                                    /Mois
+                                  </span>
+                                </div>
+                              )}
+                              {yearly > 0 && (
+                                <div className="text-xl font-semibold text-gray-800">
+                                  {yearly.toLocaleString()} FCFA
+                                  <span className="text-sm font-normal text-gray-500">
+                                    /Année
+                                  </span>
+                                </div>
+                              )}
+                            </>
+                          ) : (
                             <div className="text-2xl font-bold text-gray-900">
-                              {plan.monthlyPriceCfa.toLocaleString()} FCFA
-                              <span className="text-sm font-normal text-gray-500">
-                                /Mois
-                              </span>
+                              0 FCFA{" "}
+                              {period ? (
+                                <span className="text-sm font-normal text-gray-500">
+                                  /{period}
+                                </span>
+                              ) : null}
                             </div>
                           )}
-                          {plan.yearlyPriceCfa > 0 && (
-                            <div className="text-xl font-semibold text-gray-800">
-                              {plan.yearlyPriceCfa.toLocaleString()} FCFA
-                              <span className="text-sm font-normal text-gray-500">
-                                /Année
-                              </span>
-                            </div>
-                          )}
-                        </>
-                      ) : (
-                        <div className="text-2xl font-bold text-gray-900">
-                          0 FCFA
-                          {plan.period ? (
-                            <span className="text-sm font-normal text-gray-500">
-                              /{plan.period}
-                            </span>
-                          ) : null}
                         </div>
-                      )}
-                    </div>
-
+                      );
+                    })()}
                     {plan.description ? (
                       <p className="text-gray-600 text-sm mt-2">
                         {plan.description}
                       </p>
                     ) : null}
                   </CardHeader>
-
                   <CardContent>
                     {Array.isArray(plan.features) &&
                     plan.features.length > 0 ? (
@@ -433,7 +497,6 @@ const AdminPlans = () => {
                     ) : (
                       <p className="text-xs text-gray-400 mb-6">—</p>
                     )}
-
                     <div className="flex space-x-2">
                       <Button
                         variant="outline"
@@ -444,8 +507,7 @@ const AdminPlans = () => {
                           setCreatingOpen(false);
                         }}
                       >
-                        <Edit className="h-3 w-3 mr-1" />
-                        Modifier
+                        <Edit className="h-3 w-3 mr-1" /> Modifier
                       </Button>
                       <Button
                         variant="outline"
@@ -453,11 +515,6 @@ const AdminPlans = () => {
                         onClick={() => onTogglePopular(plan)}
                         className={
                           plan.isPopular ? "bg-yellow-50 text-yellow-700" : ""
-                        }
-                        title={
-                          plan.isPopular
-                            ? "Retirer des populaires"
-                            : "Marquer populaire"
                         }
                       >
                         <Crown className="h-3 w-3" />
@@ -478,7 +535,6 @@ const AdminPlans = () => {
           )}
         </div>
 
-        {/* Tarifs uniques (même vue, branché API) */}
         <div className="mb-8">
           <div className="flex justify-between items-center mb-6">
             <h2 className="text-2xl font-bold text-gray-900">Tarifs Uniques</h2>
@@ -486,11 +542,9 @@ const AdminPlans = () => {
               onClick={addNewTarif}
               className="bg-red-600 hover:bg-red-700"
             >
-              <Plus className="h-4 w-4 mr-2" />
-              Nouveau Tarif
+              <Plus className="h-4 w-4 mr-2" /> Nouveau Tarif
             </Button>
           </div>
-
           {loadingTarifs ? (
             <div className="text-gray-500">Chargement…</div>
           ) : tarifsUniques.length === 0 ? (
@@ -530,7 +584,6 @@ const AdminPlans = () => {
                         />
                       </div>
                     </div>
-
                     <div className="text-2xl font-bold text-red-600">
                       {editingTarif === String(tarif.id) ? (
                         <Input
@@ -550,7 +603,6 @@ const AdminPlans = () => {
                       )}
                     </div>
                   </CardHeader>
-
                   <CardContent>
                     {editingTarif === String(tarif.id) ? (
                       <textarea
@@ -570,7 +622,6 @@ const AdminPlans = () => {
                         {tarif.description}
                       </p>
                     )}
-
                     <div className="flex space-x-2">
                       {editingTarif === String(tarif.id) ? (
                         <>
@@ -598,8 +649,7 @@ const AdminPlans = () => {
                             className="flex-1"
                             onClick={() => setEditingTarif(tarif.id.toString())}
                           >
-                            <Edit className="h-3 w-3 mr-1" />
-                            Modifier
+                            <Edit className="h-3 w-3 mr-1" /> Modifier
                           </Button>
                           <Button
                             variant="outline"
@@ -619,7 +669,6 @@ const AdminPlans = () => {
           )}
         </div>
 
-        {/* Statistiques */}
         <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
           <Card>
             <CardContent className="p-4">
@@ -656,7 +705,6 @@ const AdminPlans = () => {
         </div>
       </div>
 
-      {/* Modal création/édition */}
       <PlanEditForm
         open={creatingOpen || !!editingPlan}
         plan={editingPlan}

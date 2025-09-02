@@ -1,212 +1,137 @@
 import { http } from "@/lib/http";
 
-/** Périodes canons utilisées côté UI */
-export type PeriodUI = "Mois" | "Année";
+export type PeriodAPI = "Mois" | "Année";
 
-/** Valeurs FR autorisées côté back (ALLOWED_COLORS) */
-const ALLOWED_COLORS = [
-  "Bleu",
-  "Vert",
-  "Rouge",
-  "Jaune",
-  "Violet",
-  "Orange",
-  "Gris",
-  "Noir",
-  "Blanc",
-  "Cyan",
-  "Rose",
-] as const;
-export type ColorFR = (typeof ALLOWED_COLORS)[number];
-
-/** --------- Types API (back) --------- */
 export interface PlanApi {
   "@id"?: string;
   id: number;
-  slug?: string;
   code?: string;
-
-  // Tarifs
-  monthly_price_cfa?: number | null;
-  yearly_price_cfa?: number | null;
-  price_cfa?: number | null; // legacy (converti par la FormRequest)
-  period?: string | null;
-
-  // Flags
+  name: string;
+  slug?: string;
+  monthly_price_cfa?: number;
+  yearly_price_cfa?: number;
   is_trial?: boolean;
   trial_days?: number | null;
-  is_active?: boolean;
-  is_popular?: boolean;
-
-  // Présentation
-  name: string;
-  color?: string | null; // FR
+  color: string;
   description?: string | null;
   features?: string[] | null;
   gradient_from?: string | null;
   gradient_to?: string | null;
-  sort_index?: number | null;
-
+  is_active?: boolean;
+  is_popular?: boolean;
   created_at?: string;
   updated_at?: string;
+  price_cfa?: number;
+  period?: string | null;
 }
 
-/** --------- Types UI (front) --------- */
 export interface Plan {
   id: number;
-  slug?: string;
   code?: string;
-
-  // Tarifs (toujours présents côté UI)
-  monthlyPriceCfa: number; // 0 si non défini
-  yearlyPriceCfa: number; // 0 si non défini
-  /** Période « active » d’affichage si un seul prix est défini */
-  period?: PeriodUI | null;
-
-  // Flags
-  isTrial: boolean;
-  trialDays?: number | null;
-  isActive: boolean;
-  isPopular: boolean;
-
-  // Présentation
   name: string;
-  color: ColorFR; // toujours une valeur autorisée
+  slug?: string;
+  monthlyPriceCfa: number;
+  yearlyPriceCfa: number;
+  isTrial: boolean;
+  trialDays: number | null;
+  color: string;
   description?: string;
   features: string[];
-  gradientFrom: string;
-  gradientTo: string;
-  sortIndex?: number | null;
-
+  gradientFrom?: string | null;
+  gradientTo?: string | null;
+  isActive: boolean;
+  isPopular: boolean;
   createdAt?: string;
   updatedAt?: string;
+  priceCfa?: number;
+  period?: PeriodAPI | null;
 }
 
-function normalizeColorFR(input?: string | null): ColorFR {
-  const val = (input ?? "").trim();
-  const found = ALLOWED_COLORS.find(
-    (c) => c.toLowerCase() === val.toLowerCase()
-  );
-  return (found ?? "Gris") as ColorFR; // défaut doux
-}
+const COLOR_TO_UI = (c: string) => c;
+const COLOR_TO_API = (c: string) => c;
 
-function normalizePeriod(p?: string | null): PeriodUI | null {
+function normalizePeriod(p?: string | null): PeriodAPI | null {
   if (!p) return null;
   const s = p.toLowerCase();
-  const isMonthly = [
-    "mois",
-    "mensuel",
-    "mensuelle",
-    "month",
-    "m",
-    "mensual",
-    "monthly",
-  ].includes(s);
-  const isYearly = [
-    "annee",
-    "année",
-    "annuel",
-    "annuelle",
-    "year",
-    "a",
-    "yearly",
-  ].includes(s);
-  if (isMonthly) return "Mois";
-  if (isYearly) return "Année";
+  if (
+    ["mois", "mensuel", "mensuelle", "month", "m", "mensual", "monthly"].includes(
+      s
+    )
+  )
+    return "Mois";
+  if (
+    ["annee", "année", "annuel", "annuelle", "year", "a", "yearly"].includes(s)
+  )
+    return "Année";
   return null;
 }
 
-export function fromApi(src: any): Plan {
-  const monthly = Number(src.monthly_price_cfa ?? 0) || 0;
-  const yearly = Number(src.yearly_price_cfa ?? 0) || 0;
-
-  let period: PeriodUI | null = null;
-  if (monthly > 0 && yearly === 0) period = "Mois";
-  if (yearly > 0 && monthly === 0) period = "Année";
-  if (monthly === 0 && yearly === 0) {
-    const legacyPrice = Number(src.price_cfa ?? 0) || 0;
-    const legacyPeriod = normalizePeriod(src.period ?? null);
-    if (legacyPrice > 0 && legacyPeriod) {
-      if (legacyPeriod === "Mois") {
-        src.monthly_price_cfa = legacyPrice;
-      } else {
-        src.yearly_price_cfa = legacyPrice;
-      }
-      if (!monthly && !yearly) period = legacyPeriod;
-    }
-  }
-
+export function fromApi(p: any): Plan {
   return {
-    id: Number(src.id),
-    slug: src.slug ?? undefined,
-    code: src.code ?? undefined,
+    id: p.id,
+    code: p.code,
+    name: p.name,
+    slug: p.slug,
 
-    monthlyPriceCfa: Number(src.monthly_price_cfa ?? 0) || 0,
-    yearlyPriceCfa: Number(src.yearly_price_cfa ?? 0) || 0,
-    period: period ?? normalizePeriod(src.period ?? null),
+    monthlyPriceCfa: Number(p.monthly_price_cfa ?? p.monthlyPriceCfa ?? 0) || 0,
+    yearlyPriceCfa: Number(p.yearly_price_cfa ?? p.yearlyPriceCfa ?? 0) || 0,
 
-    isTrial: Boolean(src.is_trial ?? false),
-    trialDays: src.trial_days ?? null,
-    isActive: Boolean(src.is_active ?? false),
-    isPopular: Boolean(src.is_popular ?? false), //
+    isTrial: !!(p.is_trial ?? p.isTrial ?? false),
+    trialDays: p.trial_days ?? p.trialDays ?? null,
 
-    name: String(src.name ?? ""),
-    color: normalizeColorFR(src.color ?? null),
-    description: src.description ?? undefined,
-    features: Array.isArray(src.features) ? src.features : [],
-    gradientFrom: String(src.gradient_from ?? "from-blue-500"),
-    gradientTo: String(src.gradient_to ?? "to-blue-600"),
-    sortIndex: src.sort_index ?? null,
+    color: COLOR_TO_UI(p.color),
+    description: p.description ?? "",
+    features: Array.isArray(p.features) ? p.features : [],
 
-    createdAt: src.createdAt ?? src.created_at,
-    updatedAt: src.updatedAt ?? src.updated_at,
+    gradientFrom: p.gradient_from ?? p.gradientFrom ?? null,
+    gradientTo: p.gradient_to ?? p.gradientTo ?? null,
+
+    isActive: !!(p.is_active ?? p.isActive ?? false),
+    isPopular: !!(p.is_popular ?? p.isPopular ?? false),
+
+    createdAt: p.createdAt ?? p.created_at,
+    updatedAt: p.updatedAt ?? p.updated_at,
+
+    priceCfa: p.price_cfa ?? p.priceCfa ?? 0,
+    period: normalizePeriod(p.period),
   };
 }
 
 export function toApi(p: Partial<Plan>): Partial<PlanApi> {
-  const out: Partial<PlanApi> = {};
-
-  if (p.name !== undefined) out.name = p.name;
-  if (p.slug !== undefined) out.slug = p.slug;
-  if (p.code !== undefined) out.code = p.code;
-
+  const base: Partial<PlanApi> = {};
+  if (p.name !== undefined) base.name = p.name;
+  if (p.slug !== undefined) base.slug = p.slug;
   if (p.monthlyPriceCfa !== undefined)
-    out.monthly_price_cfa = Number(p.monthlyPriceCfa) || 0;
+    base.monthly_price_cfa = p.monthlyPriceCfa;
   if (p.yearlyPriceCfa !== undefined)
-    out.yearly_price_cfa = Number(p.yearlyPriceCfa) || 0;
+    base.yearly_price_cfa = p.yearlyPriceCfa;
+  if (p.isTrial !== undefined) base.is_trial = p.isTrial;
+  if (p.trialDays !== undefined) base.trial_days = p.trialDays;
 
-  if (
-    p.period &&
-    p.monthlyPriceCfa === undefined &&
-    p.yearlyPriceCfa === undefined
-  ) {
-    //
-    //
-  }
+  if (p.color !== undefined) base.color = COLOR_TO_API(p.color);
+  if (p.description !== undefined) base.description = p.description ?? null;
+  if (p.features !== undefined) base.features = p.features ?? [];
+  if (p.gradientFrom !== undefined) base.gradient_from = p.gradientFrom;
+  if (p.gradientTo !== undefined) base.gradient_to = p.gradientTo;
 
-  if (p.isTrial !== undefined) out.is_trial = !!p.isTrial;
-  if (p.trialDays !== undefined) out.trial_days = p.trialDays ?? null;
+  if (p.isActive !== undefined) base.is_active = p.isActive;
+  if (p.isPopular !== undefined) base.is_popular = p.isPopular;
 
-  if (p.isActive !== undefined) out.is_active = !!p.isActive;
-  if (p.isPopular !== undefined) out.is_popular = !!p.isPopular;
-
-  if (p.color !== undefined) out.color = normalizeColorFR(p.color);
-  if (p.description !== undefined) out.description = p.description ?? null;
-  if (p.features !== undefined) out.features = p.features ?? [];
-
-  if (p.gradientFrom !== undefined) out.gradient_from = p.gradientFrom ?? null;
-  if (p.gradientTo !== undefined) out.gradient_to = p.gradientTo ?? null;
-  if (p.sortIndex !== undefined) out.sort_index = p.sortIndex ?? null;
-
-  return out;
+  return base;
 }
 
 function extractMember(json: any): any[] {
   if (!json) return [];
-  if (Array.isArray(json.member)) return json.member;
-  if (Array.isArray(json["hydra:member"])) return json["hydra:member"];
-  if (Array.isArray(json.data)) return json.data;
-  return Array.isArray(json) ? json : [];
+  if (Array.isArray(json.member)) return json.member; //
+  if (Array.isArray(json["hydra:member"])) return json["hydra:member"]; //
+  if (Array.isArray(json.data)) return json.data; 
+  return [];
+}
+
+export function iriId(iri?: string): number | null {
+  if (!iri || typeof iri !== "string") return null;
+  const m = iri.match(/\/(\d+)(\?.*)?$/);
+  return m ? parseInt(m[1], 10) : null;
 }
 
 function apiError(err: any, fallback: string) {
@@ -248,7 +173,8 @@ export const plans = {
 
   async create(payload: Partial<Plan>): Promise<Plan> {
     try {
-      const r = await http.post(`/plans`, toApi(payload), {
+      const body = toApi(payload);
+      const r = await http.post(`/plans`, body, {
         headers: { "Content-Type": "application/ld+json" },
       });
       return fromApi(r.data);
@@ -259,7 +185,8 @@ export const plans = {
 
   async update(id: number, patch: Partial<Plan>): Promise<Plan> {
     try {
-      const r = await http.patch(`/plans/${id}`, toApi(patch), {
+      const body = toApi(patch);
+      const r = await http.patch(`/plans/${id}`, body, {
         headers: { "Content-Type": "application/merge-patch+json" },
       });
       return fromApi(r.data);

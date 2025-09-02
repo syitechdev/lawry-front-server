@@ -131,4 +131,8 @@ class Plan extends Model
     {
         return trim(($this->gradient_from ?: 'from-blue-500') . ' ' . ($this->gradient_to ?: 'to-blue-600'));
     }
+    public function subscriptions()
+    {
+        return $this->hasMany(Subscription::class);
+    }
 }

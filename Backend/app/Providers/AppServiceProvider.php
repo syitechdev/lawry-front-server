@@ -12,8 +12,6 @@ use Illuminate\Auth\Events\Registered;
 use App\Listeners\SendWelcomeEmail;
 use Illuminate\Database\Eloquent\Relations\Relation;
 
-
-
 class AppServiceProvider extends ServiceProvider
 {
 
@@ -67,6 +65,7 @@ class AppServiceProvider extends ServiceProvider
         Relation::morphMap([
             'formation' => \App\Models\Formation::class,
             'demande'   => \App\Models\Demande::class,
+            'subscription' => \App\Models\Subscription::class,
         ]);
     }
 }
