@@ -32,7 +32,7 @@ use App\Http\Controllers\Admin\ConseilsGratuitsController as AdminCG;
 use App\Http\Controllers\PlanController;
 use App\Http\Controllers\Admin\PlanSubscriptionController;
 use App\Http\Controllers\Admin\UserServicesController;
-
+use App\Http\Controllers\PublicBoutiquesController;
 
 
 Route::patch('/admin/tarifs/{tarif}/active', [TarifUniqueActiveController::class, 'update']);
@@ -63,6 +63,12 @@ Route::prefix('v1')->group(function () {
     //Newsletter
     Route::post('/newsletter/subscribe', [NewsletterPublicController::class, 'subscribe']);
     Route::post('/newsletter/unsubscribe', [NewsletterPublicController::class, 'unsubscribe']);
+
+    //boutique
+    Route::get('/boutique', [PublicBoutiquesController::class, 'index']);
+    Route::get('/categorie', [PublicBoutiquesController::class, 'indexCategorie']);
+
+
 
     //Demande management
     Route::get('/track', [TrackDemandeController::class, 'show'])

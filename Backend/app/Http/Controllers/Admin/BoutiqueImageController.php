@@ -13,6 +13,8 @@ class BoutiqueImageController extends Controller
         $request->validate([
             'image' => ['required', 'file', 'mimes:jpg,jpeg,png,webp,avif,gif,svg', 'max:5120'],
         ]);
+
+        $boutique->fill([]); //
         $boutique->save();
 
         return response()->json($boutique->fresh(), 200);

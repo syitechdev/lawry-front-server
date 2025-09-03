@@ -4,6 +4,7 @@ namespace App\Http\Requests;
 
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rule;
+use Illuminate\Http\UploadedFile;
 
 class BoutiqueUpsertRequest extends FormRequest
 {
@@ -30,12 +31,19 @@ class BoutiqueUpsertRequest extends FormRequest
             'price_cfa'   => array_merge($req(), ['integer', 'min:0']),
             'description' => array_merge($req(), ['string']),
 
+            'type'        => ['required', Rule::in(['service', 'file'])],
+
             'category'    => ['sometimes'],
             'category_id' => [\Illuminate\Validation\Rule::requiredIf(fn() => !$this->has('category')), 'integer', 'exists:categories,id'],
             'categoryId'  => ['sometimes', 'integer', 'exists:categories,id'],
 
-            'files'       => ['sometimes', 'array'],
-            'files.*'     => ['string', 'max:255'],
+            // 'files'       => ['sometimes', 'array'],
+            // 'files.*'     => ['string', 'max:255'],
+
+            'files'       => [
+                $this->input('type') === 'file' && $isCreate ? 'required' : 'sometimes',
+                'array'
+            ],
 
             'image'     => ['sometimes', 'file', 'mimes:jpg,jpeg,png,webp,avif,gif,svg', 'max:5120'],
             'image_url' => ['sometimes', 'url'],
@@ -45,11 +53,18 @@ class BoutiqueUpsertRequest extends FormRequest
 
             'rating'           => ['sometimes', 'numeric', 'between:0,5'],
             'downloads_count'  => ['sometimes', 'integer', 'min:0'],
+
+            'files_json'  => ['sometimes', 'array'],
+            'files_json.*' => ['string', 'max:255'],
         ];
     }
 
     protected function prepareForValidation(): void
     {
+        if (!$this->has('type')) {
+            $this->merge(['type' => 'service']);
+        }
+
         if (is_string($this->input('files'))) {
             $parts = preg_split('/[\r\n,]+/', $this->input('files'));
             $parts = array_values(array_filter(array_map('trim', $parts)));
@@ -73,5 +88,28 @@ class BoutiqueUpsertRequest extends FormRequest
         if ($this->has('category_id')) {
             $this->merge(['category_id' => (int) $this->input('category_id')]);
         }
+    }
+
+    public function withValidator($validator)
+    {
+        $validator->after(function ($v) {
+            if (!$this->filled('files') || !is_array($this->input('files'))) {
+                return;
+            }
+
+            foreach ($this->input('files') as $idx => $val) {
+                $file = $this->file("files.$idx");
+                if ($file instanceof UploadedFile) {
+                    if ($file->getSize() > 10 * 1024 * 1024) {
+                        $v->errors()->add("files.$idx", 'Chaque fichier doit faire au plus 10 Mo.');
+                    }
+                    continue;
+                }
+
+                if (!is_string($val) || mb_strlen($val) > 255) {
+                    $v->errors()->add("files.$idx", 'Doit être un chemin/URL (string ≤ 255) ou un fichier uploadé.');
+                }
+            }
+        });
     }
 }

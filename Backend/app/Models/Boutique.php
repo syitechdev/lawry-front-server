@@ -5,7 +5,6 @@ namespace App\Models;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Support\Facades\Storage;
-
 use ApiPlatform\Metadata\ApiResource;
 use ApiPlatform\Metadata\Get;
 use ApiPlatform\Metadata\GetCollection;
@@ -19,14 +18,12 @@ use ApiPlatform\Metadata\Delete;
     middleware: ['auth:sanctum'],
     operations: [
         new GetCollection(middleware: ['permission:boutiques.read']),
-        new Get(middleware: ['permission:boutiques.read']),
+        new Get(),
         new Post(middleware: ['permission:boutiques.create']),
         new Patch(middleware: ['permission:boutiques.update']),
         new Delete(middleware: ['permission:boutiques.delete']),
     ],
 )]
-
-
 class Boutique extends Model
 {
     use HasFactory;
@@ -34,6 +31,7 @@ class Boutique extends Model
     protected $fillable = [
         'name',
         'code',
+        'type',
         'price_cfa',
         'description',
         'files',
@@ -54,6 +52,8 @@ class Boutique extends Model
         'rating'          => 'decimal:1',
     ];
 
+    protected $appends = ['image_url', 'files_urls'];
+
     protected static function booted()
     {
         static::creating(function (self $b) {
@@ -61,16 +61,17 @@ class Boutique extends Model
                 $next = (int) (self::max('id') ?? 0) + 1;
                 $b->code = 'PROD' . str_pad((string)$next, 3, '0', STR_PAD_LEFT);
             }
+            if (empty($b->type)) {
+                $b->type = 'service';
+            }
         });
 
         static::saving(function (self $b) {
+            // Normaliser category_id depuis plusieurs formats
             if (empty($b->category_id)) {
                 $cands = [];
-
                 foreach (['category_id', 'categoryId', 'category'] as $k) {
-                    if (!is_null($b->getAttribute($k))) {
-                        $cands[] = $b->getAttribute($k);
-                    }
+                    if (!is_null($b->getAttribute($k))) $cands[] = $b->getAttribute($k);
                 }
                 $req = request();
                 if ($req) {
@@ -78,22 +79,21 @@ class Boutique extends Model
                         if ($req->has($k)) $cands[] = $req->input($k);
                     }
                 }
-
                 foreach ($cands as $val) {
                     if (is_string($val) && preg_match('/\/(\d+)(\?.*)?$/', $val, $m)) {
-                        $b->category_id = (int) $m[1];
+                        $b->category_id = (int)$m[1];
                         break;
                     }
                     if (is_array($val) && isset($val['@id']) && preg_match('/\/(\d+)(\?.*)?$/', $val['@id'], $m)) {
-                        $b->category_id = (int) $m[1];
+                        $b->category_id = (int)$m[1];
                         break;
                     }
                     if (is_array($val) && isset($val['id'])) {
-                        $b->category_id = (int) $val['id'];
+                        $b->category_id = (int)$val['id'];
                         break;
                     }
                     if (is_numeric($val)) {
-                        $b->category_id = (int) $val;
+                        $b->category_id = (int)$val;
                         break;
                     }
                 }
@@ -104,31 +104,73 @@ class Boutique extends Model
                 if ($b->getOriginal('image_path')) {
                     Storage::disk('public')->delete($b->getOriginal('image_path'));
                 }
-                $path = $file->store('boutique', 'public');
-                $b->image_path = $path;
+                $b->image_path = $file->store('boutique/images', 'public');
             }
             if (request()->filled('image_url')) {
                 $b->image_path = request('image_url');
             }
+
+            // Fichiers multiples si type = file
+            if (($b->type ?? 'service') === 'file') {
+                $existing = is_array($b->files) ? $b->files : [];
+
+                // ajout via upload multipart
+                if (request()->hasFile('files')) {
+                    foreach ((array) request()->file('files') as $uploaded) {
+                        $path = $uploaded->store('boutique/files', 'public');
+                        $existing[] = $path;
+                    }
+                }
+
+                // ajout via payload JSON déjà stocké (ex: cron, import)
+                if (request()->filled('files_json') && is_array(request('files_json'))) {
+                    foreach (request('files_json') as $p) {
+                        if (is_string($p) && strlen($p)) $existing[] = $p;
+                    }
+                }
+
+                // dédup + réindex
+                $b->files = array_values(array_unique($existing));
+            } else {
+                // 
+                //
+            }
+        });
+
+        static::deleting(function (self $b) {
+            if ($b->image_path && !preg_match('#^https?://#i', $b->image_path)) {
+                Storage::disk('public')->delete($b->image_path);
+            }
+            if (is_array($b->files)) {
+                foreach ($b->files as $p) {
+                    if ($p && !preg_match('#^https?://#i', $p)) {
+                        Storage::disk('public')->delete($p);
+                    }
+                }
+            }
         });
     }
-
 
     public function category()
     {
         return $this->belongsTo(Category::class);
     }
 
-    protected $appends = ['image_url'];
-
     public function getImageUrlAttribute(): ?string
     {
         if ($this->image_path) {
-            if (preg_match('#^https?://#i', $this->image_path)) {
-                return $this->image_path;
-            }
-            return asset('storage/' . $this->image_path);
+            if (preg_match('#^https?://#i', $this->image_path)) return $this->image_path;
+            return asset('storage/' . ltrim($this->image_path, '/'));
         }
         return null;
+    }
+
+    public function getFilesUrlsAttribute(): array
+    {
+        if (!is_array($this->files)) return [];
+        return array_map(function ($p) {
+            if (preg_match('#^https?://#i', $p)) return $p;
+            return asset('storage/' . ltrim($p, '/'));
+        }, $this->files);
     }
 }
