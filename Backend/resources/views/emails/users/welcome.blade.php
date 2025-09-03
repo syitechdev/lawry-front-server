@@ -26,8 +26,8 @@
                     style="border:1px solid #7a0c0c; border-top-width:10px; border-top-left-radius:20px; border-top-right-radius:20px; border-collapse:separate; border-spacing:0; background:#ffffff;">
                     <tr>
                         <td align="center" style="padding:28px;">
-                            <img src="https://syitech-group.com/lovable-uploads/cfc4a0de-7b60-4b99-bebb-20e1c30a5c4a.png"
-                                alt="{{ $appName }} logo" width="250"
+                            <img src="https://lawry-conseilsci.com/lovable-uploads/58eeab48-482f-4e0a-ba88-27030b1aab79.png"
+                                alt="{{ $appName }} logo" width="300"
                                 style="display:block; border:0; outline:none; text-decoration:none;"
                                 onerror="this.style.display='none'" />
                         </td>

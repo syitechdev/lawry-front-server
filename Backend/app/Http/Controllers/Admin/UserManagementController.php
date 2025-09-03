@@ -81,40 +81,6 @@ class UserManagementController extends Controller
         ]);
     }
 
-
-    // public function updateRole(Request $request, User $user)
-    // {
-    //     if (! $request->user()->hasRole('Admin')) {
-    //         return response()->json(['message' => 'Forbidden'], 403);
-    //     }
-
-    //     $data = $request->validate([
-    //         'role' => ['required', Rule::in(['Admin', 'Client'])],
-    //     ]);
-
-    //     if ($user->hasRole('Admin') && $data['role'] === 'Client') {
-    //         $otherAdmins = User::role('Admin')->where('id', '!=', $user->id)->count();
-    //         if ($otherAdmins === 0) {
-    //             return response()->json(['message' => 'Impossible de retirer le dernier Admin'], 422);
-    //         }
-    //     }
-
-    //     if ($request->user()->id === $user->id && $data['role'] === 'Client') {
-    //         $otherAdmins = User::role('Admin')->where('id', '!=', $user->id)->count();
-    //         if ($otherAdmins === 0) {
-    //             return response()->json(['message' => 'Vous ne pouvez pas vous retirer si vous êtes le seul Admin'], 422);
-    //         }
-    //     }
-
-    //     $user->syncRoles($data['role']);
-    //     $user->load('roles');
-
-    //     return response()->json([
-    //         'message' => 'Role updated',
-    //         'user'    => new UserResource($user),
-    //     ]);
-    // }
-
     public function update(UserUpsertRequest $request, User $user)
     {
         // Admin only
@@ -170,16 +136,24 @@ class UserManagementController extends Controller
         }
 
         if ($user->hasRole('Admin')) {
-            $otherAdmins = User::role('Admin')->where('id', '!=', $user->id)->count();
+            $otherAdmins = \App\Models\User::role('Admin')->where('id', '!=', $user->id)->count();
             if ($otherAdmins === 0) {
                 return response()->json(['message' => 'Impossible de supprimer le dernier Admin'], 422);
             }
         }
 
+        // 🔒 VERROU : l'utilisateur a-t-il déjà utilisé un “service” ?
+        // (subscription, formation, demande … extensible)
+        if ($this->userHasAnyServiceUsage($user)) {
+            return response()->json([
+                'message' => 'Ce client a déjà utilisé des services (abonnement/demande/formation…). Suppression interdite.'
+            ], 422);
+        }
+
         $payload = [
-            'id'       => $user->id,
-            'name'     => $user->name,
-            'email'    => $user->email,
+            'id'        => $user->id,
+            'name'      => $user->name,
+            'email'     => $user->email,
             'was_admin' => $user->hasRole('Admin'),
         ];
 
@@ -190,5 +164,46 @@ class UserManagementController extends Controller
             'message' => 'Utilisateur supprimé avec succès.',
             'user'    => $payload
         ], 200);
+    }
+
+    /**
+     * Retourne true si l'utilisateur possède au moins un service (passé ou présent).
+     * Types couverts : subscription, formation, demande (extensible).
+     */
+    private function userHasAnyServiceUsage(\App\Models\User $user): bool
+    {
+        // Liste des modèles “services” à vérifier (ajoute ici tes futurs types)
+        $serviceModels = [
+            \App\Models\Subscription::class,
+            // Ajoute si existants dans ton app :
+            \App\Models\Formation::class,
+            \App\Models\Demande::class,
+        ];
+
+        foreach ($serviceModels as $modelClass) {
+            if (!class_exists($modelClass)) {
+                continue;
+            }
+            $m = new $modelClass;
+            $q = $modelClass::query();
+
+            // Si la table a une colonne user_id, on filtre dessus.
+            // Sinon, si une relation user() existe, on filtre via whereHas.
+            $table = $m->getTable();
+            if (\Illuminate\Support\Facades\Schema::hasColumn($table, 'user_id')) {
+                $q->where("{$table}.user_id", $user->id);
+            } elseif (method_exists($m, 'user')) {
+                $q->whereHas('user', fn($uq) => $uq->where('users.id', $user->id));
+            } else {
+                // Rien à faire pour ce type si ni colonne ni relation.
+                continue;
+            }
+
+            if ($q->exists()) {
+                return true;
+            }
+        }
+
+        return false;
     }
 }

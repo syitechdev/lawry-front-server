@@ -12,6 +12,12 @@ import type { Plan } from "@/services/plans";
 import PlanEditForm from "@/components/forms/PlanEditForm";
 import { http } from "@/lib/http";
 
+import SubscribersModal from "@/components/modals/SubscribersModal";
+import {
+  getPlanSubscriptionSummary,
+  type PlanSubscriptionSummary,
+} from "@/services/subscriptions";
+
 type TarifUniqueRow = {
   id: number | string;
   nom: string;
@@ -91,6 +97,19 @@ const AdminPlans = () => {
   const [editingPlan, setEditingPlan] = useState<Plan | null>(null);
   const [creatingOpen, setCreatingOpen] = useState(false);
 
+  const [tarifsUniques, setTarifsUniques] = useState<TarifUniqueRow[]>([]);
+  const [loadingTarifs, setLoadingTarifs] = useState(true);
+  const [editingTarif, setEditingTarif] = useState<string | null>(null);
+
+  const [subsSummaries, setSubsSummaries] = useState<
+    Record<number, PlanSubscriptionSummary>
+  >({});
+  const [summariesLoading, setSummariesLoading] = useState(false);
+
+  const [subsModalOpen, setSubsModalOpen] = useState(false);
+  const [subsModalPlanId, setSubsModalPlanId] = useState<number | null>(null);
+  const [subsModalPlanName, setSubsModalPlanName] = useState<string>("");
+
   const load = async () => {
     setLoading(true);
     try {
@@ -105,6 +124,25 @@ const AdminPlans = () => {
   useEffect(() => {
     load();
   }, []);
+
+  useEffect(() => {
+    const run = async () => {
+      if (items.length === 0) return;
+      setSummariesLoading(true);
+      try {
+        const results = await Promise.all(
+          items.map(async (p) => {
+            const s = await getPlanSubscriptionSummary(p.id);
+            return [p.id, s] as const;
+          })
+        );
+        setSubsSummaries(Object.fromEntries(results));
+      } finally {
+        setSummariesLoading(false);
+      }
+    };
+    run();
+  }, [items]);
 
   const getPlanBadgeColor = (couleur: string) => {
     const key = (couleur || "").toLowerCase();
@@ -124,7 +162,25 @@ const AdminPlans = () => {
     return map[key] || "bg-gray-100 text-gray-800";
   };
 
+  const isPlanLocked = (planId: number) => {
+    const s = subsSummaries[planId];
+    if (!s) return false;
+    return (s.total ?? 0) > 0;
+  };
+
+  const openSubscribersModal = (planId: number, planName: string) => {
+    setSubsModalPlanId(planId);
+    setSubsModalPlanName(planName);
+    setSubsModalOpen(true);
+  };
+
   const onDelete = async (p: Plan) => {
+    if (isPlanLocked(p.id)) {
+      toast.warning(
+        "Ce plan a des abonnements en cours ou à valider. Suppression impossible."
+      );
+      return;
+    }
     if (!confirm(`Supprimer le plan "${p.name}" ?`)) return;
     try {
       await plansApi.remove(p.id);
@@ -136,6 +192,12 @@ const AdminPlans = () => {
   };
 
   const onToggleActive = async (p: Plan) => {
+    if (isPlanLocked(p.id) && p.isActive) {
+      toast.warning(
+        "Ce plan a des abonnements en cours — désactivation interdite."
+      );
+      return;
+    }
     const next = !p.isActive;
     setItems((prev) =>
       prev.map((x) => (x.id === p.id ? { ...x, isActive: next } : x))
@@ -166,10 +228,6 @@ const AdminPlans = () => {
       toast.error(e?.message || "Échec de la mise à jour");
     }
   };
-
-  const [tarifsUniques, setTarifsUniques] = useState<TarifUniqueRow[]>([]);
-  const [loadingTarifs, setLoadingTarifs] = useState(true);
-  const [editingTarif, setEditingTarif] = useState<string | null>(null);
 
   const loadTarifs = async () => {
     setLoadingTarifs(true);
@@ -303,6 +361,23 @@ const AdminPlans = () => {
     return { total, actifs, populaires, nbTarifsActifs };
   }, [items, tarifsUniques]);
 
+  const subsStats = useMemo(() => {
+    const ids = items.map((i) => i.id);
+    let total = 0,
+      active = 0,
+      inactive = 0,
+      pending = 0;
+    ids.forEach((id) => {
+      const s = subsSummaries[id];
+      if (!s) return;
+      total += s.total || 0;
+      active += s.active || 0;
+      inactive += s.inactive || 0;
+      pending += s.pending || 0;
+    });
+    return { total, active, inactive, pending };
+  }, [items, subsSummaries]);
+
   return (
     <div className="min-h-screen bg-gradient-to-br from-gray-50 via-red-50/30 to-gray-50">
       <Toaster position="top-right" richColors />
@@ -335,40 +410,41 @@ const AdminPlans = () => {
               </Button>
             </div>
           </div>
-        </div>
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mt-6">
-          <Card>
-            <CardContent className="p-4">
-              <div className="text-2xl font-bold text-blue-600">
-                {stats.total}
-              </div>
-              <p className="text-sm text-gray-600">Total abonnements</p>
-            </CardContent>
-          </Card>
-          <Card>
-            <CardContent className="p-4">
-              <div className="text-2xl font-bold text-green-600">
-                {stats.active}
-              </div>
-              <p className="text-sm text-gray-600">Actifs</p>
-            </CardContent>
-          </Card>
-          <Card>
-            <CardContent className="p-4">
-              <div className="text-2xl font-bold text-red-600">
-                {stats.expired}
-              </div>
-              <p className="text-sm text-gray-600">Expirés</p>
-            </CardContent>
-          </Card>
-          <Card>
-            <CardContent className="p-4">
-              <div className="text-2xl font-bold text-yellow-600">
-                {stats.pending}
-              </div>
-              <p className="text-sm text-gray-600">En attente</p>
-            </CardContent>
-          </Card>
+
+          <div className="mt-4 grid grid-cols-2 md:grid-cols-4 gap-4">
+            <Card>
+              <CardContent className="p-4">
+                <div className="text-xs text-gray-500">Abonnements totaux</div>
+                <div className="text-2xl font-bold">
+                  {summariesLoading ? "…" : subsStats.total}
+                </div>
+              </CardContent>
+            </Card>
+            <Card>
+              <CardContent className="p-4">
+                <div className="text-xs text-gray-500">Actifs</div>
+                <div className="text-2xl font-bold text-green-600">
+                  {summariesLoading ? "…" : subsStats.active}
+                </div>
+              </CardContent>
+            </Card>
+            <Card>
+              <CardContent className="p-4">
+                <div className="text-xs text-gray-500">À valider</div>
+                <div className="text-2xl font-bold text-yellow-600">
+                  {summariesLoading ? "…" : subsStats.pending}
+                </div>
+              </CardContent>
+            </Card>
+            <Card>
+              <CardContent className="p-4">
+                <div className="text-xs text-gray-500">Inactifs/Expirés</div>
+                <div className="text-2xl font-bold text-gray-600">
+                  {summariesLoading ? "…" : subsStats.inactive}
+                </div>
+              </CardContent>
+            </Card>
+          </div>
         </div>
 
         <div className="mb-12">
@@ -397,20 +473,30 @@ const AdminPlans = () => {
                   )}
                   <CardHeader className="text-center pb-4">
                     <div className="flex justify-between items-start mb-2">
-                      <Badge className={getPlanBadgeColor(plan.color)}>
-                        {plan.name}
-                      </Badge>
+                      <div className="flex items-center gap-2">
+                        <Badge className={getPlanBadgeColor(plan.color)}>
+                          {plan.name}
+                        </Badge>
+                        {subsSummaries[plan.id] ? (
+                          <Badge className="bg-blue-300 text-gray-700">
+                            {subsSummaries[plan.id].total} abonné
+                            {subsSummaries[plan.id].total > 1 ? "s" : ""}
+                          </Badge>
+                        ) : null}
+                      </div>
                       <div className="flex items-center space-x-2">
                         <Switch
                           checked={!!plan.isActive}
                           onCheckedChange={() => onToggleActive(plan)}
                           className="scale-75"
+                          disabled={isPlanLocked(plan.id) && plan.isActive}
                         />
                         <span className="text-xs text-gray-500">
                           {plan.isActive ? "Actif" : "Inactif"}
                         </span>
                       </div>
                     </div>
+
                     {(() => {
                       const { monthly, yearly, period } = getPlanPrices(
                         plan as any
@@ -480,6 +566,7 @@ const AdminPlans = () => {
                       </p>
                     ) : null}
                   </CardHeader>
+
                   <CardContent>
                     {Array.isArray(plan.features) &&
                     plan.features.length > 0 ? (
@@ -497,7 +584,16 @@ const AdminPlans = () => {
                     ) : (
                       <p className="text-xs text-gray-400 mb-6">—</p>
                     )}
-                    <div className="flex space-x-2">
+
+                    <div className="flex flex-wrap gap-2">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="flex-1"
+                        onClick={() => openSubscribersModal(plan.id, plan.name)}
+                      >
+                        Voir abonnés
+                      </Button>
                       <Button
                         variant="outline"
                         size="sm"
@@ -523,7 +619,17 @@ const AdminPlans = () => {
                         variant="outline"
                         size="sm"
                         onClick={() => onDelete(plan)}
-                        className="text-red-600 hover:bg-red-50"
+                        className={`text-red-600 hover:bg-red-50 ${
+                          isPlanLocked(plan.id)
+                            ? "opacity-50 pointer-events-none"
+                            : ""
+                        }`}
+                        disabled={isPlanLocked(plan.id)}
+                        title={
+                          isPlanLocked(plan.id)
+                            ? "Des abonnements existent : suppression impossible"
+                            : "Supprimer"
+                        }
                       >
                         <Trash2 className="h-3 w-3" />
                       </Button>
@@ -715,6 +821,13 @@ const AdminPlans = () => {
         onSubmitted={async () => {
           await load();
         }}
+      />
+
+      <SubscribersModal
+        open={subsModalOpen}
+        onClose={() => setSubsModalOpen(false)}
+        planId={subsModalPlanId ?? 0}
+        planName={subsModalPlanName}
       />
     </div>
   );

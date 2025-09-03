@@ -30,6 +30,8 @@ use App\Http\Controllers\ConseilsGratuitsController;
 use App\Http\Controllers\TrackDemandeController;
 use App\Http\Controllers\Admin\ConseilsGratuitsController as AdminCG;
 use App\Http\Controllers\PlanController;
+use App\Http\Controllers\Admin\PlanSubscriptionController;
+use App\Http\Controllers\Admin\UserServicesController;
 
 
 
@@ -112,6 +114,9 @@ Route::prefix('v1')->group(function () {
             Route::put('admin/users/{user}/role', [UserManagementController::class, 'updateRole']);
             Route::patch('admin/users/{user}', [UserManagementController::class, 'update']);
             Route::delete('admin/users/{user}', [UserManagementController::class, 'destroy']);
+
+            Route::get('admin/users/{user}/services', [UserServicesController::class, 'index']);
+            Route::get('admin/users/{user}/services/summary', [UserServicesController::class, 'summary']);
 
             Route::patch('admin/formations/{formation}/active', [FormationActiveController::class, 'update'])
                 ->name('admin.formations.active.update');
@@ -226,6 +231,10 @@ Route::prefix('v1')->group(function () {
 
             Route::delete('admin/conseils-gratuits/{conseil}', [AdminCG::class, 'destroy'])
                 ->whereNumber('conseil');
+
+
+            Route::get('admin/plans/{plan}/subscriptions', [PlanSubscriptionController::class, 'index']);
+            Route::get('admin/plans/{plan}/subscriptions/summary', [PlanSubscriptionController::class, 'summary']);
         });
 
         Route::middleware(['auth:sanctum', 'permission:rbac.manage'])->prefix('admin/rbac')->group(function () {
