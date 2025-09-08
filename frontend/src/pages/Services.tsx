@@ -208,13 +208,175 @@ const Services = () => {
       <Header />
       <div className="min-h-screen bg-gradient-to-br from-slate-50 to-red-50">
         {/* --- Hero Section --- */}
-        {/* … ton Hero Section inchangé … */}
+        <section className="relative py-20 bg-gradient-to-r from-red-900 to-red-800 text-white overflow-hidden">
+          <div className="absolute inset-0 opacity-10">
+            <div className="absolute -top-4 -right-4 w-72 h-72 bg-white rounded-full blur-3xl"></div>
+            <div className="absolute -bottom-8 -left-8 w-96 h-96 bg-white rounded-full blur-3xl"></div>
+          </div>
+          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 relative">
+            <div className="text-center">
+              <div className="flex items-center justify-center mb-6">
+                <Badge
+                  variant="secondary"
+                  className="bg-white/20 text-white text-sm px-4 py-2 backdrop-blur-sm"
+                >
+                  <Scale className="h-4 w-4 mr-2" />
+                  Nos Services Juridiques – Lawry Conseils CI
+                </Badge>
+              </div>
+              <h1 className="text-5xl md:text-6xl font-bold mb-6 animate-fade-in">
+                Notre Expertise
+                <span className="block text-red-200">à Votre Service</span>
+              </h1>
+              <p className="text-xl text-red-100 mb-8 max-w-4xl mx-auto animate-fade-in">
+                Notre cabinet met à votre disposition un savoir-faire juridique
+                de haut niveau, alliant rigueur professionnelle et approche
+                personnalisée, pour accompagner efficacement particuliers et
+                entreprises dans leurs démarches juridiques.
+              </p>
+              <div className="flex flex-col sm:flex-row gap-4 justify-center animate-fade-in">
+                <Button
+                  asChild
+                  size="lg"
+                  className="bg-white text-red-900 hover:bg-red-50 text-lg px-8 py-3 hover:scale-105 transition-all duration-200 shadow-lg hover:shadow-xl"
+                >
+                  <Link to="/conseil-gratuit">
+                    <Phone className="mr-2 h-5 w-5" />
+                    Consultation gratuite
+                  </Link>
+                </Button>
+                <Button
+                  asChild
+                  size="lg"
+                  variant="outline"
+                  className="text-lg px-8 py-3 border-white text-red-900 hover:bg-white hover:text-red-900 hover:scale-105 transition-all duration-200"
+                >
+                  <Link to="/contact">
+                    <Mail className="mr-2 h-5 w-5" />
+                    Contactez-nous
+                  </Link>
+                </Button>
+              </div>
+            </div>
+          </div>
+        </section>
 
-        {/* --- Main Services --- */}
-        {/* … section mainServices inchangée … */}
+        {/* Main Services Section */}
+        <section className="py-16 bg-white">
+          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+            <div className="text-center mb-12">
+              <h2 className="text-4xl font-bold text-gray-900 mb-4">
+                Nos Services Principaux
+              </h2>
+              <p className="text-lg text-gray-600 max-w-3xl mx-auto">
+                Trois piliers fondamentaux pour votre accompagnement juridique
+              </p>
+            </div>
 
-        {/* --- Additional Services --- */}
-        {/* … section additionalServices inchangée … */}
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
+              {mainServices.map((service, index) => (
+                <Card
+                  key={service.id}
+                  className={`relative overflow-hidden bg-white hover:shadow-xl transition-all duration-300 group hover:scale-105 animate-fade-in ${
+                    service.popular ? "ring-2 ring-red-500" : ""
+                  }`}
+                >
+                  {service.popular && (
+                    <div className="absolute -top-3 left-1/2 transform -translate-x-1/2">
+                      <Badge className="bg-red-500 text-white px-3 py-1">
+                        <Star className="h-3 w-3 mr-1" />
+                        Populaire
+                      </Badge>
+                    </div>
+                  )}
+
+                  <div
+                    className={`absolute inset-0 bg-gradient-to-br ${service.gradient} opacity-5 group-hover:opacity-10 transition-opacity duration-300`}
+                  ></div>
+
+                  <div className="relative p-6">
+                    <div
+                      className={`inline-flex p-3 rounded-lg bg-gradient-to-br ${service.gradient} text-white mb-4 group-hover:scale-110 transition-transform duration-200`}
+                    >
+                      <service.icon className="h-8 w-8" />
+                    </div>
+
+                    <h3 className="text-xl font-semibold text-gray-900 mb-3">
+                      {service.title}
+                    </h3>
+                    <p className="text-gray-600 mb-4 text-sm">
+                      {service.description}
+                    </p>
+
+                    <ul className="space-y-2 mb-6">
+                      {service.features.map((feature, idx) => (
+                        <li
+                          key={idx}
+                          className="flex items-start text-sm text-gray-600"
+                        >
+                          <CheckCircle className="h-4 w-4 text-green-500 mr-2 flex-shrink-0 mt-0.5" />
+                          {feature}
+                        </li>
+                      ))}
+                    </ul>
+
+                    <Button
+                      className="w-full bg-red-900 hover:bg-red-800 group-hover:scale-105 transition-all duration-200 shadow-md hover:shadow-lg"
+                      asChild
+                    >
+                      <Link to={service.link}>
+                        <Handshake className="mr-2 h-4 w-4" />
+                        En savoir plus
+                        <ArrowRight className="ml-2 h-4 w-4" />
+                      </Link>
+                    </Button>
+                  </div>
+                </Card>
+              ))}
+            </div>
+          </div>
+        </section>
+
+        {/* Additional Services Infographic */}
+        <section className="py-16 bg-gradient-to-br from-gray-50 to-blue-50">
+          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+            <div className="text-center mb-12">
+              <h2 className="text-4xl font-bold text-gray-900 mb-4">
+                Services Complémentaires
+              </h2>
+              <p className="text-lg text-gray-600 max-w-2xl mx-auto">
+                Une gamme étendue de services pour répondre à tous vos besoins
+                juridiques
+              </p>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+              {additionalServices.map((service, index) => (
+                <div key={index} className="group">
+                  <Card className="p-6 h-full bg-white hover:shadow-lg transition-all duration-300 hover:scale-105 border-l-4 border-l-red-500">
+                    <div className="flex items-start space-x-4">
+                      <div
+                        className={`p-3 rounded-lg bg-gray-100 group-hover:bg-red-50 transition-colors duration-200`}
+                      >
+                        <service.icon
+                          className={`h-6 w-6 ${service.color} group-hover:text-red-600 transition-colors duration-200`}
+                        />
+                      </div>
+                      <div className="flex-1">
+                        <h3 className="font-semibold text-gray-900 mb-2">
+                          {service.title}
+                        </h3>
+                        <p className="text-sm text-gray-600">
+                          {service.description}
+                        </p>
+                      </div>
+                    </div>
+                  </Card>
+                </div>
+              ))}
+            </div>
+          </div>
+        </section>
 
         {/* --- Subscription Plans Section --- */}
         <section className="py-16 bg-white">
@@ -250,125 +412,135 @@ const Services = () => {
               </div>
             </div>
 
-           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
-  {plans.map((plan) => {
-    const monthly = Number(plan.monthly_price_cfa || 0);
-    const yearly = Number(plan.yearly_price_cfa || 0);
-    const currentPrice = isYearly ? yearly : monthly;
-    const displayPrice =
-      isYearly && !plan.is_trial ? Math.round(yearly / 12) : monthly;
-    const discount =
-      isYearly && !plan.is_trial && monthly > 0
-        ? getDiscountPercentage(monthly, yearly)
-        : 0;
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
+              {plans.map((plan) => {
+                const monthly = Number(plan.monthly_price_cfa || 0);
+                const yearly = Number(plan.yearly_price_cfa || 0);
+                const currentPrice = isYearly ? yearly : monthly;
+                const displayPrice =
+                  isYearly && !plan.is_trial
+                    ? Math.round(yearly / 12)
+                    : monthly;
+                const discount =
+                  isYearly && !plan.is_trial && monthly > 0
+                    ? getDiscountPercentage(monthly, yearly)
+                    : 0;
 
-    return (
-      <Card
-        key={plan.id}
-        className="relative overflow-hidden transition-all duration-300 hover:scale-105 hover:shadow-2xl bg-white"
-      >
-        {/* badges */}
-        {plan.is_popular ? (
-          <div className="absolute -top-3 left-1/2 transform -translate-x-1/2">
-            <Badge className="bg-blue-500 text-white px-4 py-2 text-sm font-semibold">
-              <Award className="h-4 w-4 mr-1" /> Le plus populaire
-            </Badge>
-          </div>
-        ) : null}
+                return (
+                  <Card
+                    key={plan.id}
+                    className="relative overflow-hidden transition-all duration-300 hover:scale-105 hover:shadow-2xl bg-white"
+                  >
+                    {/* badges */}
+                    {plan.is_popular ? (
+                      <div className="absolute -top-3 left-1/2 transform -translate-x-1/2">
+                        <Badge className="bg-blue-500 text-white px-4 py-2 text-sm font-semibold">
+                          <Award className="h-4 w-4 mr-1" /> Le plus populaire
+                        </Badge>
+                      </div>
+                    ) : null}
 
-        {plan.is_trial ? (
-          <div className="absolute -top-3 left-1/2 transform -translate-x-1/2">
-            <Badge className="bg-green-500 text-white px-4 py-2 text-sm font-semibold">
-              <Gift className="h-4 w-4 mr-1" /> Essai Gratuit
-            </Badge>
-          </div>
-        ) : null}
+                    {plan.is_trial ? (
+                      <div className="absolute -top-3 left-1/2 transform -translate-x-1/2">
+                        <Badge className="bg-green-500 text-white px-4 py-2 text-sm font-semibold">
+                          <Gift className="h-4 w-4 mr-1" /> Essai Gratuit
+                        </Badge>
+                      </div>
+                    ) : null}
 
-        {isYearly && discount > 0 && !plan.is_trial && (
-          <div className="absolute -top-2 -right-2">
-            <Badge className="bg-green-500 text-white px-2 py-1 text-xs">
-              -{discount}%
-            </Badge>
-          </div>
-        )}
+                    {isYearly && discount > 0 && !plan.is_trial && (
+                      <div className="absolute -top-2 -right-2">
+                        <Badge className="bg-green-500 text-white px-2 py-1 text-xs">
+                          -{discount}%
+                        </Badge>
+                      </div>
+                    )}
 
-        {/* contenu */}
-        <div className="relative p-8">
-          <div className="text-center mb-8">
-            <h3 className="text-2xl font-bold text-gray-900 mb-4">
-              {plan.name}
-            </h3>
-            <div className="flex items-baseline justify-center mb-2">
-              {plan.is_trial ? (
-                <div className="text-center">
-                  <span className="text-4xl font-bold text-green-600">
-                    GRATUIT
-                  </span>
-                  <div className="text-sm text-gray-500 mt-1">
-                    {plan.trial_days} jours
-                  </div>
-                </div>
-              ) : (
-                <>
-                  <span className="text-4xl font-bold text-red-900">
-                    {formatPrice(displayPrice)}
-                  </span>
-                  <span className="text-gray-500 ml-2">FCFA / mois</span>
-                </>
-              )}
+                    {/* contenu */}
+                    <div className="relative p-8">
+                      <div className="text-center mb-8">
+                        <h3 className="text-2xl font-bold text-gray-900 mb-4">
+                          {plan.name}
+                        </h3>
+                        <div className="flex items-baseline justify-center mb-2">
+                          {plan.is_trial ? (
+                            <div className="text-center">
+                              <span className="text-4xl font-bold text-green-600">
+                                GRATUIT
+                              </span>
+                              <div className="text-sm text-gray-500 mt-1">
+                                {plan.trial_days} jours
+                              </div>
+                            </div>
+                          ) : (
+                            <>
+                              <span className="text-4xl font-bold text-red-900">
+                                {formatPrice(displayPrice)}
+                              </span>
+                              <span className="text-gray-500 ml-2">
+                                FCFA / mois
+                              </span>
+                            </>
+                          )}
+                        </div>
+                        {isYearly && !plan.is_trial && (
+                          <div className="text-sm text-gray-500">
+                            Facturé {formatPrice(currentPrice)} FCFA / an
+                          </div>
+                        )}
+                        {!isYearly && !plan.is_trial && (
+                          <div className="text-sm text-gray-400">
+                            {plan.description}
+                          </div>
+                        )}
+                      </div>
+
+                      {/* features */}
+                      <ul className="space-y-4 mb-8">
+                        {plan.features.map((f: string, idx: number) => (
+                          <li
+                            key={idx}
+                            className="flex items-start text-sm text-gray-600"
+                          >
+                            <CheckCircle className="h-5 w-5 text-green-500 mr-3" />
+                            {f}
+                          </li>
+                        ))}
+                      </ul>
+
+                      {/* bouton qui ouvre le formulaire dans un modal */}
+                      <Dialog>
+                        <DialogTrigger asChild>
+                          <Button
+                            className={`w-full ${
+                              plan.is_popular
+                                ? "bg-blue-600 hover:bg-blue-700"
+                                : plan.is_trial
+                                ? "bg-green-600 hover:bg-green-700"
+                                : "bg-red-900 hover:bg-red-800"
+                            } py-3`}
+                          >
+                            <Zap className="mr-2 h-4 w-4" />
+                            {plan.is_trial
+                              ? "Commencer l'essai"
+                              : `Souscrire à ${plan.name}`}
+                            <ArrowRight className="ml-2 h-4 w-4" />
+                          </Button>
+                        </DialogTrigger>
+                        <DialogContent className="max-w-md">
+                          <DialogHeader>
+                            <DialogTitle>
+                              Souscrire au plan {plan.name}
+                            </DialogTitle>
+                          </DialogHeader>
+                          <SubscriptionForm plan={plan} isYearly={isYearly} />
+                        </DialogContent>
+                      </Dialog>
+                    </div>
+                  </Card>
+                );
+              })}
             </div>
-            {isYearly && !plan.is_trial && (
-              <div className="text-sm text-gray-500">
-                Facturé {formatPrice(currentPrice)} FCFA / an
-              </div>
-            )}
-            {!isYearly && !plan.is_trial && (
-              <div className="text-sm text-gray-400">{plan.description}</div>
-            )}
-          </div>
-
-          {/* features */}
-          <ul className="space-y-4 mb-8">
-            {plan.features.map((f: string, idx: number) => (
-              <li
-                key={idx}
-                className="flex items-start text-sm text-gray-600"
-              >
-                <CheckCircle className="h-5 w-5 text-green-500 mr-3" />
-                {f}
-              </li>
-            ))}
-          </ul>
-
-          {/* bouton qui ouvre le formulaire dans un modal */}
-          <Dialog>
-            <DialogTrigger asChild>
-              <Button
-                className={`w-full ${
-                  plan.is_popular
-                    ? "bg-blue-600 hover:bg-blue-700"
-                    : plan.is_trial
-                    ? "bg-green-600 hover:bg-green-700"
-                    : "bg-red-900 hover:bg-red-800"
-                } py-3`}
-              >
-                <Zap className="mr-2 h-4 w-4" />
-                {plan.is_trial ? "Commencer l'essai" : `Souscrire à ${plan.name}`}
-                <ArrowRight className="ml-2 h-4 w-4" />
-              </Button>
-            </DialogTrigger>
-            <DialogContent className="max-w-md">
-              <DialogHeader>
-                <DialogTitle>Souscrire au plan {plan.name}</DialogTitle>
-              </DialogHeader>
-              <SubscriptionForm plan={plan} isYearly={isYearly} />
-            </DialogContent>
-          </Dialog>
-        </div>
-      </Card>
-    );
-  })}
-</div>
 
             <div className="mt-16">
               <div className="text-center mb-8">
@@ -454,7 +626,6 @@ const Services = () => {
             </div>
           </div>
         </section>
-
       </div>
       <Footer />
     </>

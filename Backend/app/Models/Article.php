@@ -39,12 +39,14 @@ class Article extends Model
         'status',
         'excerpt',
         'content',
+        'views_count',
         'image_url',
         'published_at',
     ];
 
     protected $casts = [
         'published_at' => 'datetime',
+        'views_count'  => 'integer',
     ];
 
     public function category(): BelongsTo

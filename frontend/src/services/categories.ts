@@ -170,3 +170,15 @@ export const categories = {
     }
   },
 };
+
+
+// Categorie page boutique
+export type CategoryItem = { id: number; name: string; slug?: string };
+
+export async function listPublicCategories() {
+  const { data } = await _http.get<CategoryItem[]>("/categorie", {
+    withCredentials: false,
+    headers: { Accept: "application/json" },
+  });
+  return data;
+}

@@ -25,18 +25,19 @@ const Blog = () => {
   const [total, setTotal] = useState(0);
   const [catNames, setCatNames] = useState<CatNameMap>({});
 
+  // (imports inchangés)
+
   useEffect(() => {
     const load = async () => {
       setLoading(true);
       try {
-        const res = await articlesApi.list(page);
-        const published = res.items.filter((a) => a.status === "published");
-        setItems(published);
-        setTotal(res.total ?? published.length);
+        const res = await articlesApi.listPublic(page, pageSize); // ✅ public
+        setItems(res.items); // déjà filtrés sur "published"
+        setTotal(res.total ?? res.items.length);
 
         const iris = Array.from(
           new Set(
-            published
+            res.items
               .map((a) => a.categoryIri)
               .filter((v): v is string => !!v && !(v in catNames))
           )

@@ -55,6 +55,7 @@ class RolesAndPermissionsSeeder extends Seeder
             // Blog / Articles
 
             'articles.create',
+            'articles.read',
             'articles.update',
             'articles.delete',
 

@@ -10,6 +10,8 @@ use Illuminate\Notifications\Messages\MailMessage;
 use App\Models\Contact;
 use App\Policies\ContactPolicy;
 use App\Policies\NewsletterSubscriptionPolicy;
+use App\Models\Payment;
+use App\Policies\PaymentPolicy;
 
 class AuthServiceProvider extends ServiceProvider
 {
@@ -17,6 +19,7 @@ class AuthServiceProvider extends ServiceProvider
         User::class => UserPolicy::class,
         Contact::class => ContactPolicy::class,
         NewsletterSubscriptionPolicy::class => NewsletterSubscriptionPolicy::class,
+        Payment::class => PaymentPolicy::class,
     ];
 
 

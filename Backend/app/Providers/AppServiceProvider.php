@@ -11,6 +11,7 @@ use Illuminate\Auth\Events\Authenticated;
 use Illuminate\Auth\Events\Registered;
 use App\Listeners\SendWelcomeEmail;
 use Illuminate\Database\Eloquent\Relations\Relation;
+use App\Models\Boutique;
 
 class AppServiceProvider extends ServiceProvider
 {
@@ -66,6 +67,7 @@ class AppServiceProvider extends ServiceProvider
             'formation' => \App\Models\Formation::class,
             'demande'   => \App\Models\Demande::class,
             'subscription' => \App\Models\Subscription::class,
+            'boutique' => Boutique::class,
         ]);
     }
 }

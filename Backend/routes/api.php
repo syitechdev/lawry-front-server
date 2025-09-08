@@ -33,11 +33,22 @@ use App\Http\Controllers\PlanController;
 use App\Http\Controllers\Admin\PlanSubscriptionController;
 use App\Http\Controllers\Admin\UserServicesController;
 use App\Http\Controllers\PublicBoutiquesController;
+use App\Http\Controllers\MePurchasesController;
+use App\Http\Controllers\Admin\BoutiquePurchasesController;
+use App\Http\Controllers\PaymentInvoiceController;
+use App\Http\Controllers\ArticlePublicController;
+
 
 
 Route::patch('/admin/tarifs/{tarif}/active', [TarifUniqueActiveController::class, 'update']);
 
 Route::prefix('v1')->group(function () {
+
+    //Blog
+    Route::get('/blog', [ArticlePublicController::class, 'index']);
+    Route::get('/blog/{slugOrId}', [ArticlePublicController::class, 'show']);
+    Route::post('/blog/{id}/view', [ArticlePublicController::class, 'trackView']);
+
     // Public
     Route::post('auth/register', [AuthController::class, 'register']);
     Route::post('auth/login',    [AuthController::class, 'login']);
@@ -67,8 +78,6 @@ Route::prefix('v1')->group(function () {
     //boutique
     Route::get('/boutique', [PublicBoutiquesController::class, 'index']);
     Route::get('/categorie', [PublicBoutiquesController::class, 'indexCategorie']);
-
-
 
     //Demande management
     Route::get('/track', [TrackDemandeController::class, 'show'])
@@ -110,6 +119,11 @@ Route::prefix('v1')->group(function () {
             Route::get('client/orders', [ClienAdminController::class, 'orders']);
             Route::get('/client/orders/{ref}', [ClienAdminController::class, 'show']);
             Route::get('/client/subscriptions/my', [PlanController::class, 'mySubscriptions']);
+            Route::get('/client/purchases', [MePurchasesController::class, 'index']);
+
+            Route::get('/client/payments', [PaymentInvoiceController::class, 'index']);
+            Route::get('/client/payments/{payment}/summary', [PaymentInvoiceController::class, 'summary']);
+            Route::get('/client/payments/{payment}/invoice.pdf', [PaymentInvoiceController::class, 'invoice']);
         });
 
         // Admin only
@@ -173,7 +187,16 @@ Route::prefix('v1')->group(function () {
             Route::patch('admin/request-types/{requestType}/toggle', [RequestTypeController::class, 'toggle']);
             Route::delete('admin/request-types/{requestType}', [RequestTypeController::class, 'destroy']);
 
-            Route::get('admin/enterprise-types/offers-counts', [\App\Http\Controllers\Admin\EnterpriseTypeController::class, 'offersCounts']);
+
+            Route::get('admin/enterprise-types/offers-counts', [EnterpriseTypeController::class, 'offersCounts']);
+
+
+            //Type d'entreprises
+            Route::post('admin/enterprise-types', [EnterpriseTypeController::class, 'store']);
+            Route::get('admin/enterprise-types', [EnterpriseTypeController::class, 'index']);
+            Route::get('admin/enterprise-types/{enterpriseType}', [EnterpriseTypeController::class, 'show']);
+            Route::patch('admin/enterprise-types/{enterpriseType}', [EnterpriseTypeController::class, 'update']);
+            Route::delete('admin/enterprise-types/{enterpriseType}', [EnterpriseTypeController::class, 'destroy']);
 
 
             Route::get('admin/enterprise-types/{id}/offers', [EnterpriseTypeOffersController::class, 'index'])
@@ -241,6 +264,10 @@ Route::prefix('v1')->group(function () {
 
             Route::get('admin/plans/{plan}/subscriptions', [PlanSubscriptionController::class, 'index']);
             Route::get('admin/plans/{plan}/subscriptions/summary', [PlanSubscriptionController::class, 'summary']);
+
+            //Boutique
+            Route::get('admin/boutiques/{id}/purchases', [BoutiquePurchasesController::class, 'index']);
+            Route::get('admin/boutiques/metrics', [BoutiquePurchasesController::class, 'statistiqueBoutique']);
         });
 
         Route::middleware(['auth:sanctum', 'permission:rbac.manage'])->prefix('admin/rbac')->group(function () {

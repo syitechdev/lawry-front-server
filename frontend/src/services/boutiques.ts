@@ -1,16 +1,20 @@
 import { http } from "@/lib/http";
-import { uploadImage } from "@/services/upload";
+import { uploadImage, uploadFiles } from "@/services/upload";
 
+/* -------------------- Types API/UI -------------------- */
 export interface BoutiqueApi {
   "@id"?: string;
   id: number;
   code?: string;
   name: string;
+
   price_cfa?: number;
   priceCfa?: number;
 
   description?: string | null;
   files?: string[] | null;
+
+  type?: "service" | "file" | null; 
 
   is_active?: boolean;
   isActive?: boolean;
@@ -47,6 +51,7 @@ export interface Produit {
   prix: number;
   description: string;
   fichiers: string[];
+  type: "service" | "file";
   actif: boolean;
   image: string;
   categorie: string;
@@ -60,7 +65,7 @@ export interface Produit {
 
 export const PLACEHOLDER = "/placeholder.svg";
 
-// -------- Helpers --------
+/* -------------------- Helpers -------------------- */
 function parseNumberSafe(v: unknown, dflt = 0): number {
   const n = typeof v === "number" ? v : Number(v);
   return Number.isFinite(n) ? n : dflt;
@@ -87,15 +92,14 @@ function pickMessage(err: any, fallback: string) {
   );
 }
 
-// -------- Mapping API -> UI --------
 function apiToUi(b: BoutiqueApi): Produit {
   const prix = parseNumberSafe(b.price_cfa ?? b.priceCfa, 0);
   const actif = b.is_active ?? b.isActive ? true : false;
+  const type = (b.type as "service" | "file") ?? "service";
 
   let image: string = PLACEHOLDER;
   const rawUrl = b.image_url ?? b.imageUrl ?? null;
   const rawPath = b.image_path ?? b.imagePath ?? null;
-
   if (typeof rawUrl === "string" && rawUrl.trim()) {
     image = rawUrl;
   } else if (typeof rawPath === "string" && rawPath.trim()) {
@@ -104,7 +108,6 @@ function apiToUi(b: BoutiqueApi): Produit {
       : `/storage/${rawPath.replace(/^\/?storage\/?/, "")}`;
   }
 
-  // catégorie affichage + id
   let categorieId: number | null | undefined =
     b.category_id ?? b.categoryId ?? null;
   let categorieLabel = "Non classé";
@@ -141,6 +144,7 @@ function apiToUi(b: BoutiqueApi): Produit {
     prix,
     description: b.description ?? "",
     fichiers: Array.isArray(b.files) ? b.files : [],
+    type,
     actif,
     image,
     categorie: categorieLabel,
@@ -152,10 +156,9 @@ function apiToUi(b: BoutiqueApi): Produit {
   };
 }
 
-// -------- Mapping UI -> API (JSON) --------
 function uiToApi(
   p: Partial<Produit>,
-  extra?: { imageUrl?: string }
+  extra?: { imageUrl?: string; filesRemove?: string[] }
 ): Partial<BoutiqueApi> {
   const out: Partial<BoutiqueApi> = {};
   if (p.nom !== undefined) out.name = p.nom;
@@ -168,13 +171,17 @@ function uiToApi(
 
   if (p.telecharges !== undefined) out.downloads_count = p.telecharges;
   if (p.note !== undefined) out.rating = parseNumberSafe(p.note, 0).toFixed(1);
+  if (p.type === "file" && p.fichiers !== undefined) out.files = p.fichiers ?? [];
 
+
+  if (p.type !== undefined) (out as any).type = p.type; //
   if (extra?.imageUrl) (out as any).image_url = extra.imageUrl;
+  if (extra?.filesRemove?.length) (out as any).files_remove = extra.filesRemove; 
 
   return out;
 }
 
-// -------- API --------
+/* -------------------- API -------------------- */
 export const boutique = {
   async list(): Promise<{ items: Produit[] }> {
     try {
@@ -203,14 +210,33 @@ export const boutique = {
     }
   },
 
-  // create(payload, undefined, imageUrl)
+  // create(payload, undefined, imageUrl, filesToUpload)
   async create(
     payload: Partial<Produit>,
     _imageFile?: File | undefined,
-    imageUrl?: string
+    imageUrl?: string,
+    filesToUpload?: File[]
   ): Promise<Produit> {
     try {
-      const body = uiToApi(payload, { imageUrl });
+      // 1) uploader d'abord les fichiers physiques si type = file
+      let uploadedFiles: string[] = [];
+      if (payload.type === "file" && filesToUpload?.length) {
+        uploadedFiles = await uploadFiles(filesToUpload);
+      }
+
+      // 2) construire le body (fusionner fichiers saisis + uploadés)
+      const body = uiToApi(
+        {
+          ...payload,
+          fichiers: [
+            ...(payload.fichiers ?? []),
+            ...uploadedFiles,
+          ],
+        },
+        { imageUrl }
+      );
+
+      // 3) POST JSON-LD
       const { data } = await http.post(`/boutiques`, body, {
         headers: {
           "Content-Type": "application/ld+json",
@@ -226,13 +252,31 @@ export const boutique = {
   async update(
     id: number,
     patch: Partial<Produit>,
-    imageFile?: File
+    imageFile?: File,
+    filesToUpload?: File[],
+    filesRemove?: string[]
   ): Promise<Produit> {
     try {
+
       let imageUrl: string | undefined;
       if (imageFile) imageUrl = await uploadImage(imageFile);
 
-      const body = uiToApi(patch, { imageUrl });
+      let uploaded: string[] = [];
+      if (patch.type === "file" && filesToUpload?.length) {
+        uploaded = await uploadFiles(filesToUpload);
+      }
+
+      const body = uiToApi(
+        {
+          ...patch,
+          fichiers: [
+            ...(patch.fichiers ?? []),
+            ...uploaded,
+          ],
+        },
+        { imageUrl, filesRemove }
+      );
+
       const { data } = await http.patch(`/boutiques/${id}`, body, {
         headers: {
           "Content-Type": "application/merge-patch+json",
@@ -272,3 +316,34 @@ export const boutique = {
     }
   },
 };
+
+
+// Front ---
+export type BoutiqueItem = {
+  id: number;
+  name: string;
+  code: string;
+  price_cfa: number;
+  description: string | null;
+  category_id: number | null;
+  rating: number;
+  image_url: string | null;
+};
+
+export type Paginated<T> = {
+  data: T[];
+  current_page: number;
+  last_page: number;
+  per_page: number;
+  total: number;
+};
+
+export async function listPublicBoutiques(params?: {
+  page?: number; per_page?: number; q?: string; category_id?: number;
+}) {
+  const { page = 1, per_page = 20, q, category_id } = params || {};
+  const res = await http.get<Paginated<BoutiqueItem>>("/boutique", {
+    params: { page, per_page, q, category_id },
+  });
+  return res.data;
+}

@@ -54,6 +54,7 @@ type Article = {
   categoryObj?: { id: number; name: string } | null;
   publishedAt?: string | null;
   createdAt?: string | null;
+  viewsCount?: number | null;
   authorName?: string | null;
 };
 
@@ -65,7 +66,6 @@ const getStatutBadge = (statut: string) =>
 export default function AdminBlog() {
   const { user, hasRole } = useAuth();
   const isAdmin = !!hasRole("Admin");
-  console.log(user, hasRole("Admin"));
   // listes
   const [categories, setCategories] = useState<Category[]>([]);
   const [articles, setArticles] = useState<Article[]>([]);
@@ -102,7 +102,7 @@ export default function AdminBlog() {
   const stats = useMemo(() => {
     const published = articles.filter((a) => a.status === "published").length;
     const drafts = articles.filter((a) => a.status === "draft").length;
-    const views = 12500;
+    const views = articles.reduce((sum, a) => sum + (a.viewsCount ?? 0), 0);
     const comments = 156;
     return { published, drafts, views, comments };
   }, [articles]);
@@ -158,6 +158,9 @@ export default function AdminBlog() {
     setCImageFile(null);
     setCImagePreview("");
   };
+
+  const formatViews = (n: number) =>
+    n < 1000 ? `${n}` : `${(n / 1000).toFixed(1)}K`;
 
   const resetEditForm = () => {
     setEImageFile(null);
@@ -333,7 +336,7 @@ export default function AdminBlog() {
           <Card className="bg-gradient-to-br from-green-500 to-green-600 text-white border-0 shadow-xl">
             <CardContent className="p-6">
               <div className="text-2xl font-bold">
-                {(12500 / 1000).toFixed(1)}K
+                {formatViews(stats.views)}
               </div>
               <p className="text-sm text-green-100">Vues ce mois</p>
             </CardContent>
@@ -346,12 +349,12 @@ export default function AdminBlog() {
               <p className="text-sm text-yellow-100">Brouillons</p>
             </CardContent>
           </Card>
-          <Card className="bg-gradient-to-br from-purple-500 to-purple-600 text-white border-0 shadow-xl">
+          {/* <Card className="bg-gradient-to-br from-purple-500 to-purple-600 text-white border-0 shadow-xl">
             <CardContent className="p-6">
               <div className="text-2xl font-bold">156</div>
               <p className="text-sm text-purple-100">Commentaires</p>
             </CardContent>
-          </Card>
+          </Card> */}
         </div>
 
         <Card>

@@ -26,10 +26,13 @@ const BlogDetail = () => {
     setLoading(true);
     try {
       let article: Article | null = null;
-      if (!slugOrId) article = null;
-      else if (/^\d+$/.test(slugOrId))
-        article = await articlesApi.show(Number(slugOrId));
-      else article = await articlesApi.findBySlug(slugOrId);
+      if (!slugOrId) {
+        article = null;
+      } else if (/^\d+$/.test(slugOrId)) {
+        article = await articlesApi.showPublic(Number(slugOrId));
+      } else {
+        article = await articlesApi.findBySlugPublic(slugOrId);
+      }
 
       if (!article) {
         setItem(null);
@@ -39,21 +42,20 @@ const BlogDetail = () => {
 
       setItem(article);
 
+      // (catégorie identique)
       const iri = article.categoryIri;
       if (article.categoryObj?.name) {
         setCatName(article.categoryObj.name);
       } else if (iri) {
-        const id = iriId(iri);
-        if (id) {
-          const cat = await categories.get(id);
-          setCatName(cat.name);
-        } else {
-          const cat = await categories.get(iri);
-          setCatName(cat.name);
-        }
+        const idMatch = iri.match(/\/(\d+)(\?.*)?$/);
+        const id = idMatch ? parseInt(idMatch[1], 10) : null;
+        const cat = await categories.get(id ?? iri);
+        setCatName(cat.name);
       } else {
         setCatName("");
       }
+
+      await articlesApi.trackView(article.id);
     } finally {
       setLoading(false);
     }

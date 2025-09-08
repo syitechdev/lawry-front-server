@@ -105,7 +105,7 @@ async function counts(): Promise<Record<number, number>> {
 export const enterpriseTypes = {
   async list(): Promise<{ items: EnterpriseType[] }> {
     try {
-      const r = await http.get(`/enterprise_types`, {
+      const r = await http.get(`/enterprise-types`, {
         headers: { Accept: "application/ld+json" },
       });
       let rows: EnterpriseType[] = extractMember(r.data).map(fromApi);
@@ -126,7 +126,7 @@ export const enterpriseTypes = {
 
   async create(payload: Partial<EnterpriseType>): Promise<EnterpriseType> {
     try {
-      const r = await http.post(`/enterprise_types`, toApi(payload), {
+      const r = await http.post(`admin/enterprise-types`, toApi(payload), {
         headers: { "Content-Type": "application/ld+json" },
       });
       return fromApi(r.data);
@@ -140,7 +140,7 @@ export const enterpriseTypes = {
     patch: Partial<EnterpriseType>
   ): Promise<EnterpriseType> {
     try {
-      const r = await http.patch(`/enterprise_types/${id}`, toApi(patch), {
+      const r = await http.patch(`admin/enterprise-types/${id}`, toApi(patch), {
         headers: { "Content-Type": "application/merge-patch+json" },
       });
       return fromApi(r.data);
@@ -151,7 +151,7 @@ export const enterpriseTypes = {
 
   async remove(id: number): Promise<void> {
     try {
-      await http.delete(`/enterprise_types/${id}`);
+      await http.delete(`admin/enterprise-types/${id}`);
     } catch (err: any) {
       throw new Error(apiError(err, "Suppression impossible"));
     }

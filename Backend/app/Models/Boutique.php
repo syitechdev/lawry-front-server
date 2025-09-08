@@ -4,6 +4,11 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
+use App\Models\Payment;
+use App\Models\Purchase;
+use App\Jobs\DeliverPurchase;
+use Illuminate\Support\Str;
+use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Storage;
 use ApiPlatform\Metadata\ApiResource;
 use ApiPlatform\Metadata\Get;
@@ -172,5 +177,69 @@ class Boutique extends Model
             if (preg_match('#^https?://#i', $p)) return $p;
             return asset('storage/' . ltrim($p, '/'));
         }, $this->files);
+    }
+
+    public function payableAmountXof(): int
+    {
+        return (int) ($this->price_cfa ?? 0);
+    }
+
+    public function payableLabel(): string
+    {
+        return trim(($this->name ?? 'Produit') . ' • ' . ($this->code ?? ''));
+    }
+
+    public function onPaymentSucceeded(Payment $payment): void
+    {
+        $user = null;
+
+        if (!empty($payment->meta['user_id'])) {
+            $user = \App\Models\User::find($payment->meta['user_id']);
+        }
+        if (!$user && $payment->customer_email) {
+            $user = \App\Models\User::where('email', $payment->customer_email)->first();
+        }
+        if (!$user) {
+            $user = \App\Models\User::create([
+                'name'     => trim(($payment->customer_first_name ?: 'Client') . ' ' . ($payment->customer_last_name ?: '')),
+                'email'    => $payment->customer_email,
+                'phone'    => $payment->customer_phone,
+                'password' => \Illuminate\Support\Facades\Hash::make(Str::random(24)),
+            ]);
+            if (method_exists($user, 'assignRole')) {
+                try {
+                    $user->assignRole('Client');
+                } catch (\Throwable $e) {
+                }
+            }
+        }
+
+        $purchase = Purchase::create([
+            'ref'              => Purchase::nextRef(),
+            'user_id'          => $user->id,
+            'boutique_id'      => $this->id,
+            'status'           => 'paid',
+            'unit_price_cfa'   => (int) $payment->amount,
+            'currency'         => $payment->currency ?: 'XOF',
+            'channel'          => $payment->channel,
+            'customer_snapshot' => [
+                'firstName' => $payment->customer_first_name,
+                'lastName'  => $payment->customer_last_name,
+                'email'     => $payment->customer_email,
+                'phone'     => $payment->customer_phone,
+            ],
+            'product_snapshot' => [
+                'name'        => $this->name,
+                'code'        => $this->code,
+                'type'        => $this->type,
+                'description' => $this->description,
+                'files'       => is_array($this->files) ? $this->files : [],
+                'files_urls'  => $this->files_urls ?? [],
+                'image_url'   => $this->image_url,
+            ],
+            'meta' => ['payment_ref' => $payment->reference],
+        ]);
+
+        \App\Jobs\DeliverPurchase::dispatchSync($purchase->id);
     }
 }

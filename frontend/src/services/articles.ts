@@ -3,7 +3,7 @@ import { http } from "@/lib/http";
 export type ArticleStatus = "draft" | "published";
 
 export interface CategoryApi {
-  "@id": string;
+  "@id"?: string;
   id: number;
   name: string;
 }
@@ -17,11 +17,18 @@ export interface ArticleApi {
   excerpt?: string | null;
   content: string;
   imageUrl?: string | null;
-  image_url?: string | null; // fallback si jamais
-  category?: string | CategoryApi | null; // IRI ou objet
+  image_url?: string | null;
+  category?: string | CategoryApi | null;   // API Platform
+  category_id?: number | null;              // Public controller
+  categoryObj?: CategoryApi | null;         // Public controller
+  // dates
   publishedAt?: string | null;
   createdAt?: string | null;
   updatedAt?: string | null;
+  published_at?: string | null;
+  created_at?: string | null;
+  updated_at?: string | null;
+  viewsCount?: number;                      // Public controller
 }
 
 export interface Article {
@@ -39,6 +46,7 @@ export interface Article {
   createdAt?: string | null;
   updatedAt?: string | null;
   authorName?: string | null;
+  viewsCount?: number | null;
 }
 
 function backendOrigin(): string {
@@ -73,23 +81,27 @@ function extractMember(json: any): any[] {
   return [];
 }
 
+/** mapping commun (API Platform & contrôleur public) */
 function fromApi(a: ArticleApi): Article {
   const img = normalizeAssetUrl(a.imageUrl ?? a.image_url ?? null);
 
-  const catIri =
-    typeof a.category === "string"
-      ? a.category
-      : a.category && typeof a.category === "object"
-      ? (a.category as CategoryApi)["@id"] || null
-      : null;
+  let catIri: string | null = null;
+  let catObj: { id: number; name: string } | null = null;
 
-  const catObj =
-    typeof a.category === "object" && a.category
-      ? {
-          id: (a.category as CategoryApi).id,
-          name: (a.category as CategoryApi).name,
-        }
-      : null;
+  // ✅ priorité categoryObj si dispo
+  const catFromObj = a.categoryObj;
+  if (catFromObj && typeof catFromObj === "object") {
+    catObj = { id: catFromObj.id, name: catFromObj.name };
+    catIri = `/api/categories/${catFromObj.id}`;
+  } else if (typeof a.category === "string") {
+    catIri = a.category;
+  } else if (a.category && typeof a.category === "object") {
+    const c = a.category as CategoryApi;
+    catIri = c["@id"] || (c.id ? `/api/categories/${c.id}` : null);
+    catObj = { id: c.id, name: c.name };
+  } else if (a.category_id) {
+    catIri = `/api/categories/${a.category_id}`;
+  }
 
   return {
     "@id": (a as any)["@id"],
@@ -101,15 +113,16 @@ function fromApi(a: ArticleApi): Article {
     content: a.content,
     imageUrl: img,
     categoryIri: catIri,
-    categoryObj: catObj,
-    publishedAt: a.publishedAt ?? null,
-    createdAt: a.createdAt ?? null,
-    updatedAt: a.updatedAt ?? null,
+    categoryObj: catObj ?? undefined,
+    publishedAt: a.publishedAt ?? a.published_at ?? null,
+    createdAt: a.createdAt ?? a.created_at ?? null,
+    updatedAt: a.updatedAt ?? a.updated_at ?? null,
     authorName: (a as any).authorName ?? null,
+    viewsCount: a.viewsCount ?? null,
   };
 }
 
-// ---------- mapping UI -> API ----------
+// ---------- mapping UI -> API (admin) ----------
 function toApi(p: Partial<Article>): any {
   const out: any = {};
   if (p.title !== undefined) out.title = p.title;
@@ -123,6 +136,43 @@ function toApi(p: Partial<Article>): any {
 }
 
 export const articlesApi = {
+  // ==== PUBLIC (/api/v1) ====
+  async listPublic(
+    page = 1,
+    perPage = 12
+  ): Promise<{ items: Article[]; total: number; page: number; perPage: number }> {
+    const { data } = await http.get(`/blog`, { params: { page, per_page: perPage } });
+    const items = Array.isArray(data?.items)
+      ? data.items.map((r: ArticleApi) => fromApi(r))
+      : extractMember(data).map((r: ArticleApi) => fromApi(r));
+    const total = typeof data?.total === "number" ? data.total : items.length;
+    return { items, total, page, perPage };
+  },
+
+  async showPublic(slugOrId: number | string): Promise<Article> {
+    const { data } = await http.get(`/blog/${slugOrId}`);
+    return fromApi(data as ArticleApi);
+  },
+
+  async findBySlugPublic(slug: string): Promise<Article | null> {
+    try {
+      const { data } = await http.get(`/blog/${encodeURIComponent(slug)}`);
+      return fromApi(data as ArticleApi);
+    } catch {
+      return null;
+    }
+  },
+
+  // compteur de vues
+  async trackView(id: number): Promise<void> {
+    try {
+      await http.post(`/blog/${id}/view`);
+    } catch {
+      /* ignore */
+    }
+  },
+
+  // ==== ADMIN (API Platform Hydra) — inchangé ====
   async list(page = 1): Promise<{ items: Article[] }> {
     const { data } = await http.get(`/articles?page=${page}`, {
       headers: { Accept: "application/ld+json" },

@@ -12,3 +12,12 @@ export async function uploadImage(file: File): Promise<string> {
   if (!url) throw new Error("Upload échoué: URL non retournée");
   return url;
 }
+
+export async function uploadFiles(files: File[]): Promise<string[]> {
+  const out: string[] = [];
+  for (const f of files) {
+    const url = await uploadImage(f); 
+    out.push(url);
+  }
+  return out;
+}
