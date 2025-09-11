@@ -22,6 +22,7 @@ class Demande extends Model implements PayableContract
         'assigned_to',
         'created_by',
         'paid_status',
+        'payment_status',
         'paid_amount',
         'currency',
         'data',
@@ -135,12 +136,30 @@ class Demande extends Model implements PayableContract
         throw new \RuntimeException("Aucun montant trouvé pour Demande {$this->ref}.");
     }
 
+    public function onPaymentPending(Payment $payment): void
+    {
+        $this->forceFill([
+            'paid_status'    => 'paiement en attente',
+            'payment_status' => 'paiement en attente',
+            'currency'       => $this->currency ?: ($payment->currency ?: 'XOF'),
+        ])->save();
+    }
+
     public function onPaymentSucceeded(Payment $payment): void
     {
         $this->forceFill([
-            'paid_status' => 'paid',
-            'paid_amount' => (float) $payment->amount,
-            'currency'    => $payment->currency ?: ($this->currency ?? 'XOF'),
+            'paid_status'    => 'paiement confirmé',
+            'payment_status' => 'paiement confirmé',
+            'paid_amount'    => (float) $payment->amount,
+            'currency'       => $payment->currency ?: ($this->currency ?? 'XOF'),
+        ])->save();
+    }
+
+    public function onPaymentFailed(Payment $payment): void
+    {
+        $this->forceFill([
+            'paid_status'    => 'paiement échoué',
+            'payment_status' => 'paiement échoué',
         ])->save();
     }
 }

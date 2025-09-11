@@ -99,8 +99,12 @@ Route::prefix('v1')->group(function () {
     Route::get('/enterprise-types/{sigle}/offers', [EnterpriseTypesPublicController::class, 'offers']);
 
     //Paiement
+    // Route::post('/pay/webhook/paiementpro', [PaymentController::class, 'webhook'])->name('payments.webhook');
+
     Route::post('/pay/{type}/{id}', [PaymentController::class, 'init'])->name('payments.init');
-    Route::post('/pay/webhook/paiementpro', [PaymentController::class, 'webhook'])->name('payments.webhook');
+
+    Route::match(['GET', 'POST'], '/pay/webhook', [PaymentController::class, 'webhook'])->name('payments.webhook');
+
     Route::get('/pay/return', [PaymentController::class, 'return'])->name('payments.return');
 
 
@@ -124,6 +128,8 @@ Route::prefix('v1')->group(function () {
             Route::get('/client/payments', [PaymentInvoiceController::class, 'index']);
             Route::get('/client/payments/{payment}/summary', [PaymentInvoiceController::class, 'summary']);
             Route::get('/client/payments/{payment}/invoice.pdf', [PaymentInvoiceController::class, 'invoice']);
+
+            Route::post('/client/demandes/{demande:ref}/messages', [DemandesController::class, 'postMessage']);
         });
 
         // Admin only

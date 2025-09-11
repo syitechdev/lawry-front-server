@@ -88,6 +88,7 @@ class ArticlePublicController extends Controller
             'createdAt'   => optional($a->created_at)->toISOString(),
             'updatedAt'   => optional($a->updated_at)->toISOString(),
             'viewsCount'  => $a->views_count,
+            'categoryName' => $a->category?->name,
         ];
     }
 }

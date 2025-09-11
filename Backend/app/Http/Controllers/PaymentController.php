@@ -5,7 +5,6 @@ namespace App\Http\Controllers;
 use Illuminate\Http\Request;
 use Illuminate\Support\Str;
 use Illuminate\Database\Eloquent\Relations\Relation;
-
 use App\Models\Payment;
 use App\Services\PaiementProAdapter;
 use App\Services\PaiementProSigner;
@@ -30,7 +29,7 @@ class PaymentController extends Controller
         $baseRef = strtoupper($type) . '-' . now()->format('Ymd') . '-' . Str::padLeft((string)$id, 6, '0');
 
         $existing = Payment::where([
-            'payable_type' => $class,
+            'payable_type' => $payable->getMorphClass(),
             'payable_id'   => $id,
             'provider'     => 'paiementpro',
         ])->whereIn('status', [
@@ -41,11 +40,12 @@ class PaymentController extends Controller
 
         if ($existing && $existing->session_id && (!$existing->expires_at || now()->lt($existing->expires_at))) {
             return response()->json([
-                'method'    => 'GET',
-                'action'    => $pp->processingUrl(),
-                'fields'    => ['sessionid' => $existing->session_id],
+                'method'     => 'GET',
+                'action'     => $pp->processingUrl(),
+                'fields'     => ['sessionId' => $existing->session_id, 'sessionid' => $existing->session_id],
+                'sessionId'  => $existing->session_id,
                 'sessionid'  => $existing->session_id,
-                'reference' => $existing->reference,
+                'reference'  => $existing->reference,
             ]);
         }
 
@@ -73,7 +73,7 @@ class PaymentController extends Controller
         }
 
         $payment = Payment::create([
-            'payable_type'        => $class,
+            'payable_type'        => $payable->getMorphClass(),
             'payable_id'          => $payable->getKey(),
             'reference'           => $reference,
             'amount'              => $amount,
@@ -97,8 +97,7 @@ class PaymentController extends Controller
             'customerLastName'    => $customerLastName,
             'customerPhoneNumber' => $customerPhoneNumber,
             'notificationURL'     => route('payments.webhook'),
-            //'returnURL'           => route('payments.return'),
-            'returnURL' => config('app.frontend_url') . 'payment/return',
+            'returnURL'           => rtrim(config('app.frontend_url'), '/') . '/payment/return',
             'countryCurrencyCode' => $pp->currencyCode(),
             'channel'             => $payment->channel,
             'description'         => $payable->payableLabel(),
@@ -129,31 +128,34 @@ class PaymentController extends Controller
 
         $payment->markInitiated($sessionId);
 
+        try {
+            if (method_exists($payable, 'onPaymentPending')) {
+                $payable->onPaymentPending($payment);
+            }
+        } catch (\Throwable $e) {
+        }
+
         return response()->json([
-            'method'    => 'GET',
-            'action'    => $pp->processingUrl(),
-            'fields'    => ['sessionid' => $sessionId], //
-            'reference' => $payment->reference,
+            'method'     => 'GET',
+            'action'     => $pp->processingUrl(),
+            'fields'     => ['sessionId' => $sessionId, 'sessionid' => $sessionId],
+            'sessionId'  => $sessionId,
+            'sessionid'  => $sessionId,
+            'reference'  => $payment->reference,
         ]);
     }
 
-
-
-    public function webhook(Request $request, PaiementProSigner $signer)
+    public function webhook(Request $request)
     {
         $payload = $request->all();
 
-        if (!$signer->verify($payload)) {
-            return response()->json(['error' => 'bad_signature'], 401);
-        }
-
         $reference    = (string) ($payload['referenceNumber'] ?? '');
-        $responsecode = (string) ($payload['responsecode'] ?? '');
+        $responsecode = strtoupper((string) ($payload['responsecode'] ?? ''));
         $message      = (string) ($payload['message'] ?? '');
 
         $payment = Payment::where('reference', $reference)->firstOrFail();
 
-        if (in_array($payment->status, [Payment::S_OK, Payment::S_FAIL, Payment::S_CANCEL, Payment::S_EXPIRE], true)) {
+        if ($payment->isTerminal()) {
             return response()->json(['ok' => true]);
         }
 
@@ -163,11 +165,42 @@ class PaymentController extends Controller
 
         if ($responsecode === '0') {
             $payment->markSucceeded('0', $message);
-            $payment->payable->onPaymentSucceeded($payment);
-        } elseif ($responsecode === '-1') {
-            $payment->markFailed('-1', $message ?: 'Transaction échouée');
+            try {
+                optional($payment->payable)->onPaymentSucceeded($payment);
+            } catch (\Throwable $e) {
+            }
+        } elseif (in_array($responsecode, ['-1', '1001', '1002'], true)) {
+            $payment->markFailed($responsecode, $message ?: 'Transaction échouée');
+            try {
+                if (method_exists($payment->payable, 'onPaymentFailed')) {
+                    $payment->payable->onPaymentFailed($payment);
+                }
+            } catch (\Throwable $e) {
+            }
+        } elseif ($responsecode === 'CANCEL') {
+            $payment->markCancelled('CANCEL', $message ?: 'Transaction annulée');
+            try {
+                if (method_exists($payment->payable, 'onPaymentFailed')) {
+                    $payment->payable->onPaymentFailed($payment);
+                }
+            } catch (\Throwable $e) {
+            }
+        } elseif ($responsecode === 'EXPIRED') {
+            $payment->markExpired('EXPIRED', $message ?: 'Session expirée');
+            try {
+                if (method_exists($payment->payable, 'onPaymentFailed')) {
+                    $payment->payable->onPaymentFailed($payment);
+                }
+            } catch (\Throwable $e) {
+            }
         } else {
             $payment->markFailed($responsecode, $message ?: 'Statut inconnu');
+            try {
+                if (method_exists($payment->payable, 'onPaymentFailed')) {
+                    $payment->payable->onPaymentFailed($payment);
+                }
+            } catch (\Throwable $e) {
+            }
         }
 
         return response()->json(['ok' => true]);
@@ -175,13 +208,64 @@ class PaymentController extends Controller
 
     public function return(Request $request)
     {
-        $reference = (string) $request->query('reference', '');
-        $payment   = Payment::where('reference', $reference)->first();
+        $payload   = $request->all() + $request->query();
+        $refRaw    = (string) ($payload['reference'] ?? $payload['referenceNumber'] ?? '');
+        $refRaw    = urldecode($refRaw);
+        $reference = $refRaw !== '' ? preg_replace('/[?&].*$/', '', $refRaw) : '';
+        $sessionId = (string) ($payload['sessionId'] ?? $payload['sessionid'] ?? '');
+        $respCode  = strtoupper((string) ($payload['responsecode'] ?? ''));
+        $message   = (string) ($payload['message'] ?? '');
+
+        $payment = null;
+        if ($reference !== '') $payment = Payment::where('reference', $reference)->first();
+        if (!$payment && $sessionId !== '') $payment = Payment::where('session_id', $sessionId)->first();
+
+        if ($payment && !$payment->isTerminal() && $respCode !== '') {
+            if ($respCode === '0') {
+                $payment->markSucceeded('0', $message);
+                try {
+                    optional($payment->payable)->onPaymentSucceeded($payment);
+                } catch (\Throwable $e) {
+                }
+            } elseif (in_array($respCode, ['-1', '1001', '1002'], true)) {
+                $payment->markFailed($respCode, $message ?: 'Transaction échouée');
+                try {
+                    if (method_exists($payment->payable, 'onPaymentFailed')) {
+                        $payment->payable->onPaymentFailed($payment);
+                    }
+                } catch (\Throwable $e) {
+                }
+            } elseif ($respCode === 'CANCEL') {
+                $payment->markCancelled('CANCEL', $message ?: 'Transaction annulée');
+                try {
+                    if (method_exists($payment->payable, 'onPaymentFailed')) {
+                        $payment->payable->onPaymentFailed($payment);
+                    }
+                } catch (\Throwable $e) {
+                }
+            } elseif ($respCode === 'EXPIRED') {
+                $payment->markExpired('EXPIRED', $message ?: 'Session expirée');
+                try {
+                    if (method_exists($payment->payable, 'onPaymentFailed')) {
+                        $payment->payable->onPaymentFailed($payment);
+                    }
+                } catch (\Throwable $e) {
+                }
+            } else {
+                $payment->markFailed($respCode, $message ?: 'Statut inconnu');
+                try {
+                    if (method_exists($payment->payable, 'onPaymentFailed')) {
+                        $payment->payable->onPaymentFailed($payment);
+                    }
+                } catch (\Throwable $e) {
+                }
+            }
+        }
 
         return response()->json([
-            'reference' => $reference,
+            'reference' => $payment?->reference ?? $reference,
             'status'    => $payment?->status ?? 'unknown',
             'message'   => $payment?->response_message,
-        ]);
+        ], $payment ? 200 : 404);
     }
 }

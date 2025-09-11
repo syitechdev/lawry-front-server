@@ -40,6 +40,7 @@ class Purchase extends Model
     {
         return $this->belongsTo(User::class);
     }
+
     public function boutique()
     {
         return $this->belongsTo(Boutique::class);

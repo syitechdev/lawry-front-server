@@ -6,7 +6,6 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use App\Models\Payment;
 use App\Models\Purchase;
-use App\Jobs\DeliverPurchase;
 use Illuminate\Support\Str;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Storage;
@@ -72,7 +71,6 @@ class Boutique extends Model
         });
 
         static::saving(function (self $b) {
-            // Normaliser category_id depuis plusieurs formats
             if (empty($b->category_id)) {
                 $cands = [];
                 foreach (['category_id', 'categoryId', 'category'] as $k) {
@@ -115,30 +113,20 @@ class Boutique extends Model
                 $b->image_path = request('image_url');
             }
 
-            // Fichiers multiples si type = file
             if (($b->type ?? 'service') === 'file') {
                 $existing = is_array($b->files) ? $b->files : [];
-
-                // ajout via upload multipart
                 if (request()->hasFile('files')) {
                     foreach ((array) request()->file('files') as $uploaded) {
                         $path = $uploaded->store('boutique/files', 'public');
                         $existing[] = $path;
                     }
                 }
-
-                // ajout via payload JSON déjà stocké (ex: cron, import)
                 if (request()->filled('files_json') && is_array(request('files_json'))) {
                     foreach (request('files_json') as $p) {
                         if (is_string($p) && strlen($p)) $existing[] = $p;
                     }
                 }
-
-                // dédup + réindex
                 $b->files = array_values(array_unique($existing));
-            } else {
-                // 
-                //
             }
         });
 
@@ -189,10 +177,9 @@ class Boutique extends Model
         return trim(($this->name ?? 'Produit') . ' • ' . ($this->code ?? ''));
     }
 
-    public function onPaymentSucceeded(Payment $payment): void
+    protected function resolveUserForPayment(Payment $payment): \App\Models\User
     {
         $user = null;
-
         if (!empty($payment->meta['user_id'])) {
             $user = \App\Models\User::find($payment->meta['user_id']);
         }
@@ -213,15 +200,24 @@ class Boutique extends Model
                 }
             }
         }
+        return $user;
+    }
 
-        $purchase = Purchase::create([
-            'ref'              => Purchase::nextRef(),
-            'user_id'          => $user->id,
-            'boutique_id'      => $this->id,
-            'status'           => 'paid',
-            'unit_price_cfa'   => (int) $payment->amount,
-            'currency'         => $payment->currency ?: 'XOF',
-            'channel'          => $payment->channel,
+    public function onPaymentPending(Payment $payment): void
+    {
+        $user = $this->resolveUserForPayment($payment);
+        $purchase = Purchase::firstOrNew([
+            'user_id'     => $user->id,
+            'boutique_id' => $this->id,
+        ]);
+        if (!$purchase->exists) {
+            $purchase->ref = Purchase::nextRef();
+        }
+        $purchase->fill([
+            'status'         => 'paiement en attente',
+            'unit_price_cfa' => $purchase->unit_price_cfa ?? null,
+            'currency'       => $payment->currency ?: 'XOF',
+            'channel'        => $payment->channel,
             'customer_snapshot' => [
                 'firstName' => $payment->customer_first_name,
                 'lastName'  => $payment->customer_last_name,
@@ -237,9 +233,69 @@ class Boutique extends Model
                 'files_urls'  => $this->files_urls ?? [],
                 'image_url'   => $this->image_url,
             ],
-            'meta' => ['payment_ref' => $payment->reference],
+            'meta' => array_merge($purchase->meta ?? [], ['payment_ref' => $payment->reference]),
         ]);
+        $purchase->save();
+        $payment->meta = array_merge($payment->meta ?? [], ['purchase_id' => $purchase->id]);
+        $payment->save();
+    }
 
+    public function onPaymentSucceeded(Payment $payment): void
+    {
+        $user = $this->resolveUserForPayment($payment);
+        $purchase = Purchase::firstOrNew([
+            'user_id'     => $user->id,
+            'boutique_id' => $this->id,
+        ]);
+        if (!$purchase->exists) {
+            $purchase->ref = Purchase::nextRef();
+        }
+        $purchase->fill([
+            'status'         => 'paiement confirmé',
+            'unit_price_cfa' => (int) $payment->amount,
+            'currency'       => $payment->currency ?: 'XOF',
+            'channel'        => $payment->channel,
+            'customer_snapshot' => [
+                'firstName' => $payment->customer_first_name,
+                'lastName'  => $payment->customer_last_name,
+                'email'     => $payment->customer_email,
+                'phone'     => $payment->customer_phone,
+            ],
+            'product_snapshot' => [
+                'name'        => $this->name,
+                'code'        => $this->code,
+                'type'        => $this->type,
+                'description' => $this->description,
+                'files'       => is_array($this->files) ? $this->files : [],
+                'files_urls'  => $this->files_urls ?? [],
+                'image_url'   => $this->image_url,
+            ],
+            'meta' => array_merge($purchase->meta ?? [], ['payment_ref' => $payment->reference]),
+        ]);
+        $purchase->save();
+        $payment->meta = array_merge($payment->meta ?? [], ['purchase_id' => $purchase->id]);
+        $payment->save();
         \App\Jobs\DeliverPurchase::dispatchSync($purchase->id);
+    }
+
+    public function onPaymentFailed(Payment $payment): void
+    {
+        $user = $this->resolveUserForPayment($payment);
+        $purchase = Purchase::firstOrNew([
+            'user_id'     => $user->id,
+            'boutique_id' => $this->id,
+        ]);
+        if (!$purchase->exists) {
+            $purchase->ref = Purchase::nextRef();
+        }
+        $purchase->fill([
+            'status'         => 'paiement échoué',
+            'currency'       => $payment->currency ?: 'XOF',
+            'channel'        => $payment->channel,
+            'meta'           => array_merge($purchase->meta ?? [], ['payment_ref' => $payment->reference]),
+        ]);
+        $purchase->save();
+        $payment->meta = array_merge($payment->meta ?? [], ['purchase_id' => $purchase->id]);
+        $payment->save();
     }
 }

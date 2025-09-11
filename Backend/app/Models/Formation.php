@@ -5,7 +5,8 @@ namespace App\Models;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Casts\Attribute;
-use Illuminate\Support\Facades\Schema;
+use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Str;
 
 use ApiPlatform\Metadata\ApiResource;
 use ApiPlatform\Metadata\Get;
@@ -18,7 +19,7 @@ use App\Contracts\PayableContract;
 use App\Traits\IsPayable;
 use App\Models\Payment;
 use App\Models\User;
-use App\Models\RegistrationItem;
+use App\Models\Registration;
 
 #[ApiResource(
     paginationItemsPerPage: 20,
@@ -62,9 +63,9 @@ class Formation extends Model implements PayableContract
 
     protected static function booted()
     {
-        static::creating(function (Formation $f) {
+        static::creating(function (self $f) {
             if (empty($f->code)) {
-                $next = (int) (Formation::max('id') ?? 0) + 1;
+                $next = (int) (self::max('id') ?? 0) + 1;
                 $f->code = 'FORM' . str_pad((string) $next, 3, '0', STR_PAD_LEFT);
             }
         });
@@ -77,7 +78,7 @@ class Formation extends Model implements PayableContract
 
     public function registrationItems()
     {
-        return $this->hasMany(RegistrationItem::class);
+        return $this->hasMany(Registration::class);
     }
 
     public function categoryId(): Attribute
@@ -100,45 +101,78 @@ class Formation extends Model implements PayableContract
         return 'Formation: ' . $title . $code;
     }
 
+    protected function resolveUserForPayment(Payment $payment): User
+    {
+        $user = null;
+        if (!empty($payment->meta['user_id'])) {
+            $user = User::find((int) $payment->meta['user_id']);
+        }
+        if (!$user && $payment->customer_email) {
+            $user = User::where('email', $payment->customer_email)->first();
+        }
+        if (!$user) {
+            $user = User::create([
+                'name'     => trim(($payment->customer_first_name ?: 'Client') . ' ' . ($payment->customer_last_name ?: '')),
+                'email'    => $payment->customer_email,
+                'phone'    => $payment->customer_phone,
+                'password' => Hash::make(Str::random(24)),
+            ]);
+            if (method_exists($user, 'assignRole')) {
+                try {
+                    $user->assignRole('Client');
+                } catch (\Throwable $e) {
+                }
+            }
+        }
+        return $user;
+    }
+
+    public function onPaymentPending(Payment $payment): void
+    {
+        $user = $this->resolveUserForPayment($payment);
+        $registration = Registration::firstOrNew([
+            'formation_id' => $this->getKey(),
+            'user_id'      => $user->id,
+        ]);
+        $registration->fill([
+            'status'     => 'paiement en attente',
+            'price_type' => $this->price_type,
+        ]);
+        $registration->save();
+        $payment->meta = array_merge($payment->meta ?? [], ['registration_id' => $registration->id]);
+        $payment->save();
+    }
+
     public function onPaymentSucceeded(Payment $payment): void
     {
-        $userId = (int) data_get($payment->meta, 'user_id');
-        if (!$userId && $payment->customer_email) {
-            $userId = optional(User::where('email', $payment->customer_email)->first())->id;
-        }
-        if (!$userId) {
-            $payment->meta = array_merge($payment->meta ?? [], ['registration_warning' => 'user_not_found']);
-            $payment->save();
-            return;
-        }
-
-        $item = RegistrationItem::firstOrNew([
+        $user = $this->resolveUserForPayment($payment);
+        $registration = Registration::firstOrNew([
             'formation_id' => $this->getKey(),
-            'user_id'      => $userId,
+            'user_id'      => $user->id,
         ]);
+        $registration->fill([
+            'status'     => 'paiement confirmé',
+            'amount_cfa' => (int) $payment->amount,
+            'price_type' => $this->price_type,
+        ]);
+        $registration->save();
+        $payment->meta = array_merge($payment->meta ?? [], ['registration_id' => $registration->id]);
+        $payment->save();
+    }
 
-        $fill = [];
-        if (Schema::hasColumn($item->getTable(), 'status'))    $fill['status'] = 'paid';
-        if (Schema::hasColumn($item->getTable(), 'paid_at'))   $fill['paid_at'] = now();
-
-        $amount = (int) $payment->amount;
-        if (Schema::hasColumn($item->getTable(), 'amount_cfa')) $fill['amount_cfa'] = $amount;
-        elseif (Schema::hasColumn($item->getTable(), 'amount')) $fill['amount'] = $amount;
-
-        if (Schema::hasColumn($item->getTable(), 'currency'))   $fill['currency'] = $payment->currency ?: 'XOF';
-        if (Schema::hasColumn($item->getTable(), 'payment_id')) $fill['payment_id'] = $payment->id;
-
-        if (Schema::hasColumn($item->getTable(), 'meta')) {
-            $meta = $item->meta ?? [];
-            $meta['payment_reference'] = $payment->reference;
-            $meta['channel'] = $payment->channel;
-            $fill['meta'] = $meta;
-        }
-
-        if (!empty($fill)) $item->fill($fill);
-        $item->save();
-
-        $payment->meta = array_merge($payment->meta ?? [], ['registration_item_id' => $item->id]);
+    public function onPaymentFailed(Payment $payment): void
+    {
+        $user = $this->resolveUserForPayment($payment);
+        $registration = Registration::firstOrNew([
+            'formation_id' => $this->getKey(),
+            'user_id'      => $user->id,
+        ]);
+        $registration->fill([
+            'status'     => 'paiement échoué',
+            'price_type' => $this->price_type,
+        ]);
+        $registration->save();
+        $payment->meta = array_merge($payment->meta ?? [], ['registration_id' => $registration->id]);
         $payment->save();
     }
 }

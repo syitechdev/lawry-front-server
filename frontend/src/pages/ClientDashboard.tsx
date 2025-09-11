@@ -157,9 +157,25 @@ const ClientDashboard = () => {
   const getStatutBadge = (code: string) =>
     STATUS_BADGE[code] ?? "bg-gray-100 text-gray-800";
 
+  const clamp = (n: number) => Math.max(0, Math.min(100, n));
+
+  const normalizeStatus = (s?: string) =>
+    (s ?? "")
+      .toLowerCase()
+      .normalize("NFD")
+      .replace(/\p{Diacritic}/gu, "") //
+      .trim()
+      .replace(/[\s-]+/g, "_");
+
   const getProgress = (d: DashboardDemande) => {
-    if (typeof d.progress === "number") return d.progress;
-    return STATUS_PROGRESS[d.status] ?? 0;
+    const code = normalizeStatus(d.status);
+    if (code && STATUS_PROGRESS[code] !== undefined) {
+      return STATUS_PROGRESS[code];
+    }
+    if (typeof d.progress === "number") {
+      return clamp(d.progress);
+    }
+    return 0;
   };
 
   if (loading) {
@@ -282,7 +298,7 @@ const ClientDashboard = () => {
                 )}
                 {demandes.map((d) => {
                   const label = STATUS_LABEL[d.status] ?? d.status;
-                  const progress = Math.max(0, Math.min(100, getProgress(d)));
+                  const progress = getProgress(d);
                   return (
                     <div
                       key={d.ref}

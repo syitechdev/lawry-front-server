@@ -3,7 +3,9 @@
 namespace App\Http\Controllers;
 
 use App\Http\Requests\DemandeStoreRequest;
+use App\Http\Requests\AssignDemandeRequest;
 use App\Http\Resources\DemandeResource;
+use Illuminate\Http\JsonResponse;
 use App\Models\Demande;
 use App\Models\DemandeEvent;
 use App\Models\DemandeFile;
@@ -347,18 +349,93 @@ class DemandesController extends Controller
         return response()->json(['ok' => true]);
     }
 
-    public function assign(Request $request, Demande $demande)
-    {
-        $data = $request->validate([
-            'user_id' => ['required', 'exists:users,id'],
-        ]);
+    // public function assign(Request $request, Demande $demande)
+    // {
+    //     $data = $request->validate([
+    //         'user_id' => ['required', 'exists:users,id'],
+    //     ]);
 
-        $demande->assigned_to = $data['user_id'];
+    //     $demande->assigned_to = $data['user_id'];
+    //     $demande->save();
+
+    //     $demande->events()->create([
+    //         'event'      => 'assigned',
+    //         'payload'    => ['user_id' => $data['user_id']],
+    //         'actor_id'   => optional($request->user())->id,
+    //         'actor_name' => optional($request->user())->name,
+    //     ]);
+
+    //     $demande->load('assignee:id,name,email');
+
+    //     return response()->json([
+    //         'message'  => 'assigned',
+    //         'assignee' => $demande->assignee
+    //             ? ['id' => $demande->assignee->id, 'name' => $demande->assignee->name, 'email' => $demande->assignee->email]
+    //             : null,
+    //     ]);
+    // }
+
+    public function assign(AssignDemandeRequest $request, Demande $demande)
+    {
+        $userId   = $request->input('user_id');
+        $takeover = (bool) $request->boolean('takeover');
+
+        $currentAssigneeId = $demande->assigned_to;
+
+        // 1) Désassigner
+        if (is_null($userId)) {
+            if ($currentAssigneeId === null) {
+                return response()->json([
+                    'message'  => 'unchanged',
+                    'assignee' => null,
+                ]);
+            }
+
+            $demande->assigned_to = null;
+            $demande->save();
+
+            $demande->events()->create([
+                'event'      => 'unassigned',
+                'payload'    => ['previous_user_id' => $currentAssigneeId],
+                'actor_id'   => optional($request->user())->id,
+                'actor_name' => optional($request->user())->name,
+            ]);
+
+            return response()->json([
+                'message'  => 'unassigned',
+                'assignee' => null,
+            ]);
+        }
+
+        if ($currentAssigneeId === (int) $userId) {
+            $demande->load('assignee:id,name,email');
+            return response()->json([
+                'message'  => 'unchanged',
+                'assignee' => $demande->assignee
+                    ? ['id' => $demande->assignee->id, 'name' => $demande->assignee->name, 'email' => $demande->assignee->email]
+                    : null,
+            ]);
+        }
+
+        if ($currentAssigneeId !== null && $currentAssigneeId !== (int) $userId && !$takeover) {
+            $demande->load('assignee:id,name,email');
+
+            return response()->json([
+                'message'  => 'already_assigned',
+                'assignee' => $demande->assignee
+                    ? ['id' => $demande->assignee->id, 'name' => $demande->assignee->name, 'email' => $demande->assignee->email]
+                    : null,
+            ], 409);
+        }
+
+        $previousId = $currentAssigneeId;
+
+        $demande->assigned_to = (int) $userId;
         $demande->save();
 
         $demande->events()->create([
-            'event'      => 'assigned',
-            'payload'    => ['user_id' => $data['user_id']],
+            'event'      => $previousId ? 'reassigned' : 'assigned',
+            'payload'    => ['user_id' => (int) $userId, 'previous_user_id' => $previousId],
             'actor_id'   => optional($request->user())->id,
             'actor_name' => optional($request->user())->name,
         ]);
@@ -366,7 +443,7 @@ class DemandesController extends Controller
         $demande->load('assignee:id,name,email');
 
         return response()->json([
-            'message'  => 'assigned',
+            'message'  => $previousId ? 'reassigned' : 'assigned',
             'assignee' => $demande->assignee
                 ? ['id' => $demande->assignee->id, 'name' => $demande->assignee->name, 'email' => $demande->assignee->email]
                 : null,
@@ -380,20 +457,36 @@ class DemandesController extends Controller
             'is_internal' => ['sometimes', 'boolean'],
         ]);
 
+        $user = $r->user();
+
+        $isClient = false;
+
+        if ($user) {
+            if (method_exists($user, 'hasRole') && $user->hasRole('Client')) {
+                $isClient = true;
+            } elseif (isset($demande->author_id) && (int)$demande->author_id === (int)$user->id) {
+                $isClient = true;
+            }
+        }
+
+        $role = $isClient ? 'client' : 'staff';
+
+        $isInternal = $isClient ? false : (bool)($data['is_internal'] ?? false);
+
         DemandeMessage::create([
             'demande_id'  => $demande->id,
-            'sender_id'   => optional($r->user())->id,
-            'sender_role' => 'staff',
-            'is_internal' => (bool)($data['is_internal'] ?? false),
+            'sender_id'   => $user?->id,
+            'sender_role' => $role,
+            'is_internal' => $isInternal,
             'body'        => $data['body'],
         ]);
 
         DemandeEvent::create([
             'demande_id' => $demande->id,
             'event'      => 'message_posted',
-            'payload'    => ['is_internal' => (bool)($data['is_internal'] ?? false)],
-            'actor_id'   => optional($r->user())->id,
-            'actor_name' => optional($r->user())->name,
+            'payload'    => ['is_internal' => $isInternal],
+            'actor_id'   => $user?->id,
+            'actor_name' => $user?->name,
         ]);
 
         return response()->json(['ok' => true]);

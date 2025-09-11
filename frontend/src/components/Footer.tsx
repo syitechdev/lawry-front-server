@@ -152,13 +152,13 @@ const Footer = () => {
           </p>
           <div className="flex flex-col sm:flex-row space-y-2 sm:space-y-0 sm:space-x-6 text-center">
             <a
-              href="#"
+              href="/politique-de-confidentialite"
               className="text-gray-400 hover:text-red-500 text-xs sm:text-sm transition-colors"
             >
               Mentions légales
             </a>
             <a
-              href="#"
+              href="/politique-de-confidentialite"
               className="text-gray-400 hover:text-red-500 text-xs sm:text-sm transition-colors"
             >
               Politique de confidentialité

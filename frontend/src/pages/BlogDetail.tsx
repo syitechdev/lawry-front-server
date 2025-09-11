@@ -4,15 +4,8 @@ import Header from "@/components/Header";
 import Footer from "@/components/Footer";
 import { Button } from "@/components/ui/button";
 import { Calendar, ArrowLeft, Share2 } from "lucide-react";
-import { articlesApi, type Article } from "@/services/articles";
-import { categories } from "@/services/categories";
+import { publicBlog as articlesApi, type Article } from "@/services/publicBlog";
 import ShareDialog from "@/components/ShareDialog";
-
-const iriId = (iri?: string | null) => {
-  if (!iri) return null;
-  const m = iri.match(/\/(\d+)(\?.*)?$/);
-  return m ? parseInt(m[1], 10) : null;
-};
 
 const BlogDetail = () => {
   const { slug: slugOrId } = useParams<{ slug: string }>();
@@ -25,35 +18,18 @@ const BlogDetail = () => {
   const load = async () => {
     setLoading(true);
     try {
-      let article: Article | null = null;
       if (!slugOrId) {
-        article = null;
-      } else if (/^\d+$/.test(slugOrId)) {
-        article = await articlesApi.showPublic(Number(slugOrId));
-      } else {
-        article = await articlesApi.findBySlugPublic(slugOrId);
-      }
-
-      if (!article) {
         setItem(null);
-        setLoading(false);
         return;
       }
 
-      setItem(article);
+      // L’API accepte id OU slug sur /blog/{slugOrId}
+      const article = await articlesApi.showPublic(
+        /^\d+$/.test(slugOrId) ? Number(slugOrId) : slugOrId
+      );
 
-      // (catégorie identique)
-      const iri = article.categoryIri;
-      if (article.categoryObj?.name) {
-        setCatName(article.categoryObj.name);
-      } else if (iri) {
-        const idMatch = iri.match(/\/(\d+)(\?.*)?$/);
-        const id = idMatch ? parseInt(idMatch[1], 10) : null;
-        const cat = await categories.get(id ?? iri);
-        setCatName(cat.name);
-      } else {
-        setCatName("");
-      }
+      setItem(article);
+      setCatName(article.categoryName || article.categoryObj?.name || "");
 
       await articlesApi.trackView(article.id);
     } finally {
@@ -74,7 +50,7 @@ const BlogDetail = () => {
       try {
         await navigator.share({ title, text, url });
       } catch {
-        // ignore cancel
+        /* ignore */
       }
     } else if (navigator.clipboard) {
       try {
@@ -176,6 +152,7 @@ const BlogDetail = () => {
                 <h3 className="text-lg font-semibold text-gray-900">
                   Partager cet article
                 </h3>
+                {/* Bouton partage natif OU modal custom */}
                 {/* <Button variant="outline" onClick={onShare}>
                   <Share2 className="mr-2 h-4 w-4" />
                   Partager

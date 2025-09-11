@@ -94,24 +94,28 @@ export async function postAdminMessage(
   });
 }
 
-export async function assignDemande(ref: string, userId?: number) {
+export async function assignDemande(
+  ref: string,
+  opts?: { userId?: number | null; takeover?: boolean }
+) {
   const me = getCurrentUser();
-  const uid = userId ?? me?.id;
-  if (!uid) throw new Error("user_id manquant");
-  return http.post(`/admin/demandes/${encodeURIComponent(ref)}/assign`, {
-    user_id: uid,
-  });
+  const body = {
+    user_id: typeof opts?.userId === "undefined" ? me?.id : opts.userId,
+    takeover: !!opts?.takeover,
+  };
+  const { data } = await http.post(
+    `/admin/demandes/${encodeURIComponent(ref)}/assign`,
+    body,
+    { headers: { "Content-Type": "application/json", Accept: "application/json" } }
+  );
+  return data; 
 }
 
 export async function searchAdminUsers(q: string) {
   const { data } = await http.get("/admin/users", {
     params: { role: "admin", q },
   });
-  return (data?.data ?? []) as Array<{
-    id: number;
-    name: string;
-    email?: string;
-  }>;
+  return (data?.data ?? []) as Array<{ id: number; name: string; email?: string }>;
 }
 
 export async function setPriority(ref: string, priority: "urgent" | "normal") {

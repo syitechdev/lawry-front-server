@@ -54,6 +54,8 @@ import FondationCreation from "./pages/FondationCreation";
 import FondationPresentation from "./pages/FondationPresentation";
 import ContractCreation from "./pages/ContractCreation";
 import RedactionContrat from "./pages/RedactionContrat";
+import PolitiqueDeConfidentialitee from "./pages/PolitiqueDeConfidentialitee";
+
 import RedactionContratForm from "./pages/RedactionContratForm";
 import LegalConsultation from "./pages/LegalConsultation";
 import NotFound from "./pages/NotFound";
@@ -122,8 +124,14 @@ const App = () => (
               <Route path="/chatbot" element={<ChatBot />} />
               <Route path="/suivi-dossier" element={<DossierTracking />} />
               <Route path="/suivi-dossier/:ref" element={<DossierTracking />} />
-
               <Route path="/payment/return" element={<PaymentReturn />} />
+
+              {/* <Route path="/suivi-dossier/:ref" element={<DossierTracking />} /> */}
+
+              <Route
+                path="/politique-de-confidentialite"
+                element={<PolitiqueDeConfidentialitee />}
+              />
 
               {/* Présentations */}
               <Route path="/creer-entreprise" element={<CreerEntreprise />} />

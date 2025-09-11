@@ -54,6 +54,11 @@ class Payment extends Model
         return $this->morphTo();
     }
 
+    public function isTerminal(): bool
+    {
+        return in_array($this->status, [self::S_OK, self::S_FAIL, self::S_CANCEL, self::S_EXPIRE], true);
+    }
+
     public function markInitiated(string $sessionId): void
     {
         $this->forceFill([
@@ -80,6 +85,26 @@ class Payment extends Model
             'status'           => self::S_FAIL,
             'response_code'    => $code,
             'response_message' => $message,
+        ])->save();
+    }
+
+    public function markCancelled(?string $code = 'CANCEL', ?string $message = null): void
+    {
+        $this->forceFill([
+            'status'           => self::S_CANCEL,
+            'response_code'    => $code,
+            'response_message' => $message,
+            'cancelled_at'     => now(),
+        ])->save();
+    }
+
+    public function markExpired(?string $code = 'EXPIRED', ?string $message = null): void
+    {
+        $this->forceFill([
+            'status'           => self::S_EXPIRE,
+            'response_code'    => $code,
+            'response_message' => $message,
+            'expires_at'       => now(),
         ])->save();
     }
 }

@@ -409,6 +409,11 @@ const RedactionContratForm = () => {
         selectedOffer.price == null ? "" : String(selectedOffer.price)
       );
 
+      if (shouldPayNow) {
+        fd.append("data[amount]", String(Math.round(fixedPrice)));
+        //fd.delete("data[montant]");
+      }
+
       // Durée
       fd.append("data[dateDebut]", data.dateDebut);
       fd.append("data[dureeContrat]", data.dureeContrat);

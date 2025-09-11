@@ -16,7 +16,9 @@ import BackofficeSidebar from "@/components/BackofficeSidebar";
 import { toast } from "sonner";
 import { http } from "@/lib/http";
 import { getFileUrl } from "@/lib/getFileUrl";
+import { getCurrentUser } from "@/lib/auth";
 
+// -------- Types --------
 type DemandeEvent = {
   id: number;
   event: string;
@@ -26,13 +28,14 @@ type DemandeEvent = {
 type DemandeFile = {
   id: number;
   original_name: string;
-  path: string;
+  path: string; // ex: "storage/demandes/..../file.pdf"
   mime?: string | null;
   created_at?: string | null;
 };
 type DemandeMessage = {
   id: number;
-  sender_role: string;
+  sender_id?: number | null; // ⬅️ utilisé pour l’alignement
+  sender_role?: string | null; // fallback si pas de sender_id
   body: string;
   created_at?: string | null;
 };
@@ -41,7 +44,7 @@ type DemandeDetail = {
   type: { slug: string; name: string; version: number };
   status: string;
   description?: string | null;
-  progress?: number | null;
+  progress?: number | null; // si backend fournit
   submitted_at?: string | null;
 };
 type FormationDetail = {
@@ -61,6 +64,7 @@ type RegistrationLight = {
   created_at?: string | null;
 };
 
+// -------- Status maps --------
 const STATUS_LABEL: Record<string, string> = {
   recu: "Reçu",
   en_cours: "En cours",
@@ -95,6 +99,48 @@ const STATUS_PROGRESS: Record<string, number> = {
   pending: 0,
 };
 
+// -------- Helpers statut/progression --------
+const clamp = (n: number) => Math.max(0, Math.min(100, n));
+
+const normalizeStatus = (s?: string) =>
+  (s ?? "")
+    .toLowerCase()
+    .trim()
+    .replace(/[\s-]+/g, "_");
+
+// ⬇️ le statut prime; fallback seulement si pas de statut
+const progressFromStatus = (status?: string, fallback?: number | null) => {
+  const code = normalizeStatus(status);
+  if (code)
+    return (
+      STATUS_PROGRESS[code] ??
+      (typeof fallback === "number" ? clamp(fallback) : 0)
+    );
+  if (typeof fallback === "number") return clamp(fallback);
+  return 0;
+};
+
+// -------- Helpers paiement --------
+const pickCurrency = (d?: any) =>
+  d?.currency || d?.price?.currency || d?.payment?.currency || "XOF";
+
+const pickAmount = (d?: any) => {
+  const n =
+    d?.amount_cfa ??
+    d?.amount ??
+    d?.total_amount ??
+    d?.price_cfa ??
+    d?.price?.amount ??
+    d?.payment?.amount;
+  return n != null ? Number(n) : null;
+};
+
+const pickPaidStatus = (d?: any) =>
+  (d?.paid_status || d?.payment_status || d?.status || "").toLowerCase();
+
+// =======================================================
+// Component
+// =======================================================
 const ClientDemandeDetail = () => {
   const { ref: refParam } = useParams<{ ref: string }>();
   const location = useLocation();
@@ -118,6 +164,11 @@ const ClientDemandeDetail = () => {
     null
   );
 
+  const [detailUrl, setDetailUrl] = useState<string>("");
+
+  const me = getCurrentUser(); // utilisé pour l’alignement des messages
+
+  // ------- Load initial -------
   useEffect(() => {
     let alive = true;
 
@@ -127,13 +178,13 @@ const ClientDemandeDetail = () => {
       return;
     }
 
+    const url = `/client/orders/${encodeURIComponent(resolvedRef)}`;
+    setDetailUrl(url);
+
     (async () => {
       setLoading(true);
       try {
-        const url = `/client/orders/${encodeURIComponent(resolvedRef)}`;
-        console.log("[Detail] fetch:", url); // DEBUG
         const { data } = await http.get(url);
-        console.log("[Detail] data:", data); // DEBUG
         if (!alive) return;
 
         if (data?.kind === "formation") {
@@ -147,14 +198,10 @@ const ClientDemandeDetail = () => {
         } else if (data?.kind === "demande") {
           setKind("demande");
           const d: DemandeDetail = data.demande;
-          const code = (d.status || "").toLowerCase();
-          const progress =
-            typeof d.progress === "number"
-              ? d.progress
-              : STATUS_PROGRESS[code] ?? 0;
+          // ⬇️ on ne force pas progress ici; on laisse le useMemo calculer
           setFormation(null);
           setRegistration(null);
-          setDemande({ ...d, progress });
+          setDemande(d);
           setEvents(Array.isArray(data.events) ? data.events : []);
           setFiles(Array.isArray(data.files) ? data.files : []);
           setMessages(Array.isArray(data.messages) ? data.messages : []);
@@ -180,43 +227,54 @@ const ClientDemandeDetail = () => {
     };
   }, [resolvedRef]);
 
+  // ------- Refresh (réutilise l’URL) -------
+  const refresh = async () => {
+    if (!detailUrl) return;
+    try {
+      const { data } = await http.get(detailUrl);
+      if (data?.kind === "formation") {
+        setKind("formation");
+        setDemande(null);
+        setEvents([]);
+        setFiles([]);
+        setMessages([]);
+        setFormation(data.formation ?? null);
+        setRegistration(data.registration ?? null);
+      } else if (data?.kind === "demande") {
+        setKind("demande");
+        const d: DemandeDetail = data.demande;
+        setFormation(null);
+        setRegistration(null);
+        setDemande(d);
+        setEvents(Array.isArray(data.events) ? data.events : []);
+        setFiles(Array.isArray(data.files) ? data.files : []);
+        setMessages(Array.isArray(data.messages) ? data.messages : []);
+      }
+    } catch {}
+  };
+
+  // ------- Memos / UI helpers -------
   const demandeProgress = useMemo(() => {
-    if (!demande) return 0;
-    return Math.max(
-      0,
-      Math.min(
-        100,
-        demande.progress ??
-          STATUS_PROGRESS[(demande.status || "").toLowerCase()] ??
-          0
-      )
-    );
-  }, [demande]);
+    return progressFromStatus(demande?.status, demande?.progress ?? null);
+  }, [demande?.status, demande?.progress]);
 
   const badgeClass = (code: string) =>
     STATUS_BADGE[code] ?? "bg-gray-100 text-gray-800";
   const badgeLabel = (code: string) =>
     STATUS_LABEL[code] ?? (code ? code[0].toUpperCase() + code.slice(1) : "—");
 
+  // ------- Actions -------
   const envoyerMessage = async () => {
     if (!message.trim() || !demande) return;
     const body = message.trim();
     setMessage("");
     try {
-      const { data } = await http.post(
+      await http.post(
         `/client/demandes/${encodeURIComponent(demande.ref)}/messages`,
         { body }
       );
-      setMessages((prev) => [
-        ...prev,
-        data?.message ?? {
-          id: Math.random(),
-          sender_role: "client",
-          body,
-          created_at: new Date().toISOString(),
-        },
-      ]);
       toast.success("Message envoyé");
+      await refresh();
     } catch {
       toast.error("Échec d’envoi du message");
       setMessage(body);
@@ -228,16 +286,15 @@ const ClientDemandeDetail = () => {
     const form = new FormData();
     Array.from(fileList).forEach((f) => form.append("files[]", f));
     try {
-      const { data } = await http.post(
+      await http.post(
         `/client/demandes/${encodeURIComponent(demande.ref)}/files`,
         form,
-        { headers: { "Content-Type": "multipart/form-data" } }
+        {
+          headers: { "Content-Type": "multipart/form-data" },
+        }
       );
-      setFiles((prev) => [
-        ...prev,
-        ...(Array.isArray(data?.files) ? data.files : []),
-      ]);
       toast.success("Fichier(s) envoyés");
+      await refresh();
     } catch {
       toast.error("Échec d’upload");
     }
@@ -245,7 +302,7 @@ const ClientDemandeDetail = () => {
 
   const backTo = () => navigate("/client/commandes");
 
-  // --------- UI (affiche le ref pour debug) ---------
+  // ===================== UI =====================
   if (loading) {
     return (
       <div className="min-h-screen bg-gradient-to-br from-gray-50 via-red-50/30 to-gray-50">
@@ -267,6 +324,7 @@ const ClientDemandeDetail = () => {
     );
   }
 
+  // ---------- Vue Formation ----------
   if (kind === "formation" && formation) {
     const paid = (registration?.status ?? "").toLowerCase() === "paid";
     const pay = registration?.amount_cfa ?? formation.price_cfa ?? null;
@@ -390,9 +448,11 @@ const ClientDemandeDetail = () => {
     );
   }
 
+  // ---------- Vue Demande ----------
   if (kind === "demande" && demande) {
-    const statusCode = (demande.status || "").toLowerCase();
-    const progress = Math.max(0, Math.min(100, demandeProgress));
+    const statusCode = normalizeStatus(demande.status);
+    const progress = clamp(demandeProgress);
+
     return (
       <div className="min-h-screen bg-gradient-to-br from-gray-50 via-red-50/30 to-gray-50">
         <BackofficeSidebar
@@ -418,17 +478,14 @@ const ClientDemandeDetail = () => {
                   Ref: {demande.ref} • Type: {demande.type?.slug}
                 </p>
               </div>
-              <Badge
-                className={
-                  STATUS_BADGE[statusCode] ?? "bg-gray-100 text-gray-800"
-                }
-              >
-                {STATUS_LABEL[statusCode] ?? statusCode}
+              <Badge className={badgeClass(statusCode)}>
+                {badgeLabel(statusCode)}
               </Badge>
             </div>
           </div>
 
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+            {/* Colonne principale */}
             <div className="lg:col-span-2 space-y-6">
               <Card className="shadow-lg">
                 <CardHeader>
@@ -473,8 +530,10 @@ const ClientDemandeDetail = () => {
                               <p className="font-medium">{ev.event}</p>
                               <span className="text-xs text-gray-500">
                                 {ev.created_at
-                                  ?.replace("T", " ")
-                                  .replace("Z", "")}
+                                  ? new Date(ev.created_at).toLocaleString(
+                                      "fr-FR"
+                                    )
+                                  : ""}
                               </span>
                             </div>
                             <p className="text-sm text-gray-600">
@@ -500,26 +559,44 @@ const ClientDemandeDetail = () => {
                       </div>
                     ) : (
                       messages.map((msg) => {
-                        const isClient =
-                          (msg.sender_role ?? "").toLowerCase() === "client";
+                        const isMine =
+                          (typeof msg.sender_id === "number" &&
+                            me?.id &&
+                            msg.sender_id === me.id) ||
+                          ((msg.sender_role ?? "").toLowerCase() === "client" &&
+                            !msg.sender_id);
+
+                        const ts = msg.created_at
+                          ? new Date(msg.created_at).toLocaleString("fr-FR")
+                          : "";
+
                         return (
                           <div
                             key={msg.id}
-                            className={`p-3 rounded-lg ${
-                              isClient ? "bg-red-50 ml-8" : "bg-gray-50 mr-8"
+                            className={`flex ${
+                              isMine ? "justify-start" : "justify-end"
                             }`}
                           >
-                            <div className="flex justify-between items-center mb-1">
-                              <span className="font-medium text-sm">
-                                {isClient ? "Vous" : "Équipe"}
-                              </span>
-                              <span className="text-xs text-gray-500">
-                                {msg.created_at?.split("T")[0]}
-                              </span>
+                            <div
+                              className={`p-3 rounded-lg max-w-[85%] shadow-sm border
+                                ${
+                                  isMine
+                                    ? "bg-white border-red-200"
+                                    : "bg-gray-50 border-gray-200"
+                                }`}
+                            >
+                              <div className="flex justify-between items-center mb-1 gap-4">
+                                <span className="font-medium text-sm">
+                                  {isMine ? "Vous" : "Équipe"}
+                                </span>
+                                <span className="text-xs text-gray-500">
+                                  {ts}
+                                </span>
+                              </div>
+                              <p className="text-sm whitespace-pre-wrap break-words">
+                                {msg.body}
+                              </p>
                             </div>
-                            <p className="text-sm whitespace-pre-wrap">
-                              {msg.body}
-                            </p>
                           </div>
                         );
                       })
@@ -544,7 +621,50 @@ const ClientDemandeDetail = () => {
               </Card>
             </div>
 
+            {/* Colonne droite */}
             <div className="space-y-6">
+              {/* Paiement (toujours affiché) */}
+              <Card className="shadow-lg">
+                <CardHeader>
+                  <CardTitle>Paiement</CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-3">
+                  {(() => {
+                    const amount = pickAmount(demande);
+                    const currency = pickCurrency(demande);
+                    const paidCode = pickPaidStatus(demande);
+                    const isPaid = ["paid", "succeeded", "termine"].includes(
+                      paidCode
+                    );
+                    return (
+                      <>
+                        <div className="flex justify-between text-sm">
+                          <span>Montant</span>
+                          <span className="font-medium">
+                            {amount != null
+                              ? `${amount.toLocaleString("fr-FR")} ${currency}`
+                              : "—"}
+                          </span>
+                        </div>
+                        <div className="flex justify-between text-sm">
+                          <span>Statut</span>
+                          <Badge
+                            className={
+                              isPaid
+                                ? "bg-green-100 text-green-800"
+                                : "bg-yellow-100 text-yellow-800"
+                            }
+                          >
+                            {isPaid ? "Payé" : paidCode || "—"}
+                          </Badge>
+                        </div>
+                      </>
+                    );
+                  })()}
+                </CardContent>
+              </Card>
+
+              {/* Documents */}
               <Card className="shadow-lg">
                 <CardHeader>
                   <CardTitle>Documents</CardTitle>
@@ -569,15 +689,20 @@ const ClientDemandeDetail = () => {
                               </p>
                               <p className="text-xs text-gray-500">
                                 {doc.mime || "—"} •{" "}
-                                {doc.created_at?.split("T")[0]}
+                                {doc.created_at
+                                  ? new Date(doc.created_at).toLocaleDateString(
+                                      "fr-FR"
+                                    )
+                                  : ""}
                               </p>
                             </div>
                           </div>
                           <Button variant="ghost" size="sm" asChild>
                             <a
                               href={getFileUrl(doc.path)}
-                              target="_blank"
+                              target="__blank"
                               rel="noopener noreferrer"
+                              download
                             >
                               <Download className="h-4 w-4" />
                             </a>
@@ -608,6 +733,7 @@ const ClientDemandeDetail = () => {
     );
   }
 
+  // ---------- Fallback ----------
   return (
     <div className="min-h-screen bg-gradient-to-br from-gray-50 via-red-50/30 to-gray-50">
       <BackofficeSidebar userRole="client" userName="—" userEmail="—" />

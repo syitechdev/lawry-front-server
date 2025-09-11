@@ -4,6 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Shield, Settings } from "lucide-react";
 import BackofficeSidebar from "@/components/BackofficeSidebar";
+import { useNavigate } from "react-router-dom";
 
 type RoleName = "Admin" | "Client" | string;
 
@@ -24,6 +25,7 @@ type CurrentUser = {
 
 const ClientProfil = () => {
   const [authUser, setAuthUser] = useState<CurrentUser | null>(null);
+  const navigate = useNavigate();
 
   const readAuthFromStorage = () => {
     try {
@@ -163,8 +165,7 @@ const ClientProfil = () => {
                 <Button
                   variant="outline"
                   onClick={() => {
-                    // on branchera plus tard : soit modal, soit route dédiée
-                    // Exemple de route : navigate("/client/profil/mot-de-passe")
+                    navigate("/forgot-password");
                   }}
                 >
                   <Shield className="h-4 w-4 mr-2" />

@@ -48,23 +48,30 @@ type Detail = {
   };
 };
 
-const statusLabel = (s: string) =>
-  s === "confirmed"
-    ? "Confirmé"
-    : s === "pending"
-    ? "En attente"
-    : s === "cancelled"
-    ? "Annulé"
-    : s;
+const statusLabel = (s: string) => {
+  const k = String(s || "").toLowerCase();
+  if (k.includes("confirm")) return "Paiement confirmé";
+  if (k.includes("attente") || k.includes("pending"))
+    return "Paiement en attente";
+  if (
+    k.includes("échou") ||
+    k.includes("echec") ||
+    k.includes("fail") ||
+    k.includes("expired")
+  )
+    return "Paiement échoué";
+  if (k.includes("annul")) return "Annulé";
+  return s || "—";
+};
 
-const statusBadge = (s: string) =>
-  s === "confirmed"
-    ? "bg-green-100 text-green-800"
-    : s === "pending"
-    ? "bg-yellow-100 text-yellow-800"
-    : s === "cancelled"
-    ? "bg-gray-200 text-gray-700"
-    : "bg-gray-100 text-gray-800";
+const statusBadge = (s: string) => {
+  const k = statusLabel(s).toLowerCase();
+  if (k.includes("confirm")) return "bg-green-100 text-green-800";
+  if (k.includes("attente")) return "bg-yellow-100 text-yellow-800";
+  if (k.includes("échou")) return "bg-red-100 text-red-800";
+  if (k.includes("annul")) return "bg-gray-200 text-gray-700";
+  return "bg-gray-100 text-gray-800";
+};
 
 export default function AdminRegistrationDetail() {
   const { id } = useParams<{ id: string }>();

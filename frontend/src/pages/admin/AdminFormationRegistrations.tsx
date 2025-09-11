@@ -54,39 +54,48 @@ const makeFormationCode = (r: any) => {
 };
 
 const adaptRow = (r: RawRegistration): Row => {
-  const status = String(r?.status ?? "").toLowerCase();
-  const status_label =
-    status === "confirmed"
-      ? "Confirmé"
-      : status === "pending"
-      ? "En attente"
-      : status === "cancelled"
-      ? "Annulé"
-      : r?.status ?? "—";
-
-  const fmt = String(r?.session_format ?? "").toLowerCase();
-  const session_format_label =
-    fmt === "presentiel"
-      ? "Présentiel"
-      : fmt === "distanciel"
-      ? "En ligne"
-      : "—";
-
-  const userName: string =
-    r?.participant ||
-    r?.user?.name ||
-    `${r?.first_name ?? r?.user?.first_name ?? ""} ${
-      r?.last_name ?? r?.user?.last_name ?? ""
-    }`.trim();
+  const raw = String(r?.status ?? "");
+  const nice = ((): string => {
+    const k = raw.toLowerCase();
+    if (k.includes("confirm")) return "Paiement confirmé";
+    if (
+      k.includes("attente") ||
+      k.includes("pending") ||
+      k.includes("initiated") ||
+      k.includes("processing")
+    )
+      return "Paiement en attente";
+    if (
+      k.includes("échou") ||
+      k.includes("echec") ||
+      k.includes("fail") ||
+      k.includes("expired")
+    )
+      return "Paiement échoué";
+    if (k.includes("annul")) return "Annulé";
+    return raw || "—";
+  })();
 
   return {
     id: Number(r?.id),
     formation_code: makeFormationCode(r),
-    participant: String(userName || "—"),
+    participant: String(
+      r?.participant ||
+        r?.user?.name ||
+        `${r?.first_name ?? r?.user?.first_name ?? ""} ${
+          r?.last_name ?? r?.user?.last_name ?? ""
+        }`.trim() ||
+        "—"
+    ),
     email: r?.email ?? r?.user?.email ?? null,
-    status: r?.status ?? "",
-    status_label,
-    session_format_label,
+    status: raw,
+    status_label: nice,
+    session_format_label:
+      (String(r?.session_format ?? "").toLowerCase() === "presentiel" &&
+        "Présentiel") ||
+      (String(r?.session_format ?? "").toLowerCase() === "distanciel" &&
+        "En ligne") ||
+      "—",
     formation_title: r?.formation?.title ?? r?.formation_title ?? null,
     created_at: r?.created_at ?? r?.createdAt ?? new Date().toISOString(),
     lu: !!(r?.read_at ?? r?.readAt),
@@ -94,12 +103,25 @@ const adaptRow = (r: RawRegistration): Row => {
 };
 
 const getStatutBadge = (label: string) => {
-  const colors: Record<string, string> = {
-    Confirmé: "bg-green-100 text-green-800",
-    "En attente": "bg-yellow-100 text-yellow-800",
-    Annulé: "bg-gray-200 text-gray-700",
-  };
-  return colors[label] || "bg-gray-100 text-gray-800";
+  const k = String(label || "").toLowerCase();
+
+  if (k.includes("confirm")) return "bg-green-100 text-green-800"; // "paiement confirmé", "confirmé", "confirmed"
+  if (
+    k.includes("attente") ||
+    k.includes("pending") ||
+    k.includes("en attente")
+  )
+    return "bg-yellow-100 text-yellow-800"; // "paiement en attente", "pending"
+  if (
+    k.includes("échou") ||
+    k.includes("echec") ||
+    k.includes("fail") ||
+    k.includes("expired")
+  )
+    return "bg-red-100 text-red-800"; // "paiement échoué", "failed", "expired"
+  if (k.includes("annul")) return "bg-gray-200 text-gray-700"; // "annulé", "cancelled"
+
+  return "bg-gray-100 text-gray-800";
 };
 
 export default function AdminFormationRegistrations() {
